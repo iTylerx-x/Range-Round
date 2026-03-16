@@ -208,6 +208,8 @@ function App(){
   var _rh=us([]),rH=_rh[0],sRH=_rh[1];
   var _ed=us(DEF_DIST),eD=_ed[0],sED=_ed[1];
   var _ec=us(ALL_CLUBS.slice()),eC=_ec[0],sEC=_ec[1];
+  var _diff=us("standard"),dfc=_diff[0],sDiff=_diff[1];
+  var DIFFS={relaxed:{label:"Relaxed",desc:"Would be on the green (~30 yds)",color:"#5aba5a"},standard:{label:"Standard",desc:"Would be pin high (~15 yds)",color:"#c9a84c"},strict:{label:"Strict",desc:"Tap-in putt range (~5 yds)",color:"#c47a4a"},tour:{label:"Tour",desc:"Could read the marker sign",color:"#c44a4a"}};
   var _dd=us("Driver"),dD=_dd[0],sDD=_dd[1];
   var _ld=us(false),ld=_ld[0],sLd=_ld[1];
   var _cf=us(null),cf=_cf[0],sCf=_cf[1];
@@ -233,11 +235,11 @@ function App(){
   function getUsed(){if(!rnd)return new Set();var u=new Set();rnd.forEach(function(ho){ho.shots.forEach(function(s){u.add(s.club)})});return u;}
 
   ue(function(){
-    sSL(LS.g("shots")||[]);sRH(LS.g("hist")||[]);sED(LS.g("dist")||DEF_DIST);sEC(LS.g("clubs")||ALL_CLUBS.slice());
+    sSL(LS.g("shots")||[]);sRH(LS.g("hist")||[]);sED(LS.g("dist")||DEF_DIST);sEC(LS.g("clubs")||ALL_CLUBS.slice());sDiff(LS.g("diff")||"standard");
     var cur=LS.g("cur");if(cur){sRnd(cur.rnd);sCH(cur.ch||0);sv("round");}sLd(true);
   },[]);
 
-  function wSL(l){sSL(l);LS.s("shots",l);}function wRH(x){sRH(x);LS.s("hist",x);}function wED(x){sED(x);LS.s("dist",x);}function wEC(x){sEC(x);LS.s("clubs",x);}function wCur(r,c){LS.s("cur",{rnd:r,ch:c});}function dCur(){LS.d("cur");}
+  function wSL(l){sSL(l);LS.s("shots",l);}function wRH(x){sRH(x);LS.s("hist",x);}function wED(x){sED(x);LS.s("dist",x);}function wEC(x){sEC(x);LS.s("clubs",x);}function wDf(x){sDiff(x);LS.s("diff",x);}function wCur(r,c){LS.s("cur",{rnd:r,ch:c});}function dCur(){LS.d("cur");}
   function startR(){var r=genR();sRnd(r);sCH(0);sv("round");wCur(r,0);}
 
   function undo(){if(!rnd)return;var ho=rnd[cH];if(!ho.shots.length)return;var prev=ho.shots.slice(0,-1);var rm=ho.shots[ho.shots.length-1];var rem=ho.dist;prev.forEach(function(s){rem=s.remA});if(!prev.length)rem=ho.dist;var nr=rnd.slice();nr[cH]=Object.assign({},ho,{shots:prev,rem:rem,done:false});sRnd(nr);var nl=sL.slice();var idx=nl.findIndex(function(s){return s.ts===rm.ts});if(idx!==-1)nl.splice(idx,1);wSL(nl);wCur(nr,cH);}
@@ -250,9 +252,32 @@ function App(){
     var zone=getZone(club,rem,eD,cY);
     var adv=calcAdv(zone,rem,resId);
     var nr2=Math.max(rem-adv,0);var minD=Math.min.apply(null,eD);
+    var shotNum=ho.shots.length+1; // this will be the Nth shot (1-based)
+    var shotsLeft=ho.par-1-shotNum; // how many more shots needed after this one (birdie pace)
+    var sortedDist=eD.slice().sort(function(a,b){return a-b});
 
-    if(rem<=minD){if(resId==="hit")nr2=0;else nr2=rem;}
-    else{if(nr2<minD)nr2=minD;}
+    // Get the cap distance: need enough remaining for shotsLeft more shots
+    // If shotsLeft=0, can complete (cap at minD). If 1, cap at 2nd marker. If 2, cap at 3rd, etc.
+    function getCap(needMore){
+      if(needMore<=0)return minD;
+      var idx=Math.min(needMore,sortedDist.length-1);
+      return sortedDist[idx];
+    }
+    var capDist=getCap(shotsLeft);
+
+    if(rem<=minD){
+      // In hole-out zone: only complete if no more shots needed
+      if(resId==="hit"&&shotsLeft<=0)nr2=0;
+      else nr2=rem;
+    }else if(shotsLeft<=0){
+      // This shot CAN complete the hole (birdie pace reached)
+      // Allow natural advance, but misses still can't hole out
+      if(resId==="hit"&&nr2<=minD)nr2=0; // clean hit completes
+      else if(resId!=="hit"&&nr2<minD)nr2=minD; // miss caps at min
+    }else{
+      // Still need more shots after this — cap at appropriate distance
+      if(nr2<capDist)nr2=capDist;
+    }
 
     // Penalty: hit=0, normal miss=+1, hazard only active on designated shot
     var pen=0;
@@ -277,7 +302,7 @@ function App(){
   }
 
   function nextH(){if(cH<8){var n=cH+1;sCH(n);wCur(rnd,n);}else{wRH(rH.concat([{holes:rnd,date:Date.now()}]));dCur();sv("scorecard");}}
-  function resetAll(){sCS(0);sCf({t:"Reset All Data?",m:"Erases all shots, rounds, and settings.",l:"Yes, Reset Everything",dbl:true,fn:function(){sSL([]);sRH([]);sRnd(null);sCH(0);sED(DEF_DIST);sEC(ALL_CLUBS.slice());["shots","hist","cur","dist","clubs"].forEach(function(k){LS.d(k)});sCf(null);sv("menu");}});}
+  function resetAll(){sCS(0);sCf({t:"Reset All Data?",m:"Erases all shots, rounds, and settings.",l:"Yes, Reset Everything",dbl:true,fn:function(){sSL([]);sRH([]);sRnd(null);sCH(0);sED(DEF_DIST);sEC(ALL_CLUBS.slice());sDiff("standard");["shots","hist","cur","dist","clubs","diff"].forEach(function(k){LS.d(k)});sCf(null);sv("menu");}});}
 
   function exportCSV(){
     if(!sL.length)return;var hdr="timestamp,date,club,zone_lo,zone_hi,target_mid,hole_yds,par,hazard_hit,result,penalty,remaining\n";
@@ -387,7 +412,7 @@ function App(){
   /* ═══ MENU ═══ */
   if(vw==="menu")return h("div",{style:{paddingBottom:32}},dlg,
     h("div",{style:{background:"linear-gradient(180deg,#1a2e1a 0%,"+C.bg+" 100%)",padding:"28px 16px 20px",textAlign:"center",borderBottom:"1px solid "+C.bd}},h("div",{style:{fontSize:34,marginBottom:4}},"\u26F3"),h("h1",{style:{fontSize:20,fontWeight:700,color:C.go,letterSpacing:2,textTransform:"uppercase"}},"Range Round"),h("p",{style:{fontSize:10,color:C.dm,letterSpacing:3,marginTop:2,textTransform:"uppercase"}},"Driving Range Golf Simulator")),
-    h("div",{style:{padding:"14px 16px 0"}},h("button",{style:BT("p"),onClick:startR},"New 9-Hole Round"),h("div",{style:{textAlign:"center",fontSize:11,color:C.dm,marginTop:4}},"Par "+RPAR+" \u00B7 Caddy mode \u00B7 Zone targeting")),
+    h("div",{style:{padding:"14px 16px 0"}},h("button",{style:BT("p"),onClick:startR},"New 9-Hole Round"),h("div",{style:{textAlign:"center",fontSize:11,color:C.dm,marginTop:4}},"Par "+RPAR+" \u00B7 ",h("span",{style:{color:DIFFS[dfc].color}},DIFFS[dfc].label)," difficulty")),
     h("div",{style:{padding:"4px 16px 0"}},h("button",{style:Object.assign({},BT("o"),{background:calProgress.pct<100?C.or+"22":"transparent",borderColor:calProgress.pct<100?C.or:C.bd}),onClick:startCal},calProgress.pct<100?"\uD83D\uDD27 Calibrate Clubs ("+calProgress.pct+"%)":"\uD83D\uDD27 Re-Calibrate Clubs"),calProgress.pct<100?h("div",{style:{textAlign:"center",fontSize:10,color:C.or,marginTop:4}},calProgress.done+"/"+calProgress.total+" clubs calibrated \u2014 do this first!"):null),
     rnd?h("div",{style:{padding:"0 16px"}},h("button",{style:BT("o"),onClick:function(){sv("round")}},"Resume Round")):null,
     h("div",{style:{padding:"4px 16px 0"}},h("button",{style:BT("o"),onClick:function(){sv("progress")}},"Progress"),h("button",{style:BT("o"),onClick:function(){sv("yardages")}},"My Club Yardages"),h("button",{style:BT("o"),onClick:function(){sv("dispersion")}},"Club Dispersion"),h("button",{style:BT("o"),onClick:function(){sv("history")}},"History ("+rH.length+")"),h("button",{style:BT("o"),onClick:function(){sv("settings")}},"\u2699 Settings")),
@@ -398,6 +423,17 @@ function App(){
   if(vw==="settings")return h("div",{style:{paddingBottom:32}},dlg,HBar("Settings",function(){sv("menu")},"\u2190 Menu"),
     h("div",{style:Object.assign({},CD,{background:C.go+"08",borderColor:C.gd})},h("div",{style:{fontSize:13,fontWeight:700,color:C.go,marginBottom:4}},"Range Markers"),h("div",{style:{fontSize:11,color:C.dm,marginBottom:10}},"Select distance markers at your range."),h("div",{style:GR(4)},ALL_DIST.map(function(d){var on=eD.includes(d);return h("button",{key:d,onClick:function(){tD(d)},style:{padding:"10px 4px",borderRadius:8,border:on?"2px solid "+C.go:"1px solid "+C.bd,background:on?C.go+"22":C.cd,color:on?C.go:C.dm,fontSize:13,fontWeight:on?700:400,fontFamily:"inherit",cursor:"pointer",textAlign:"center"}},d+"y")})),h("div",{style:{marginTop:8,fontSize:10,color:C.dm}},eD.length+" selected")),
     h("div",{style:Object.assign({},CD,{background:C.gn+"08",borderColor:C.gn})},h("div",{style:{fontSize:13,fontWeight:700,color:C.gb,marginBottom:4}},"My Bag"),h("div",{style:{fontSize:11,color:C.dm,marginBottom:10}},"Caddy uses every club at least once."),h("div",{style:GR(4)},ALL_CLUBS.map(function(c){var on=eC.includes(c);return h("button",{key:c,onClick:function(){tC(c)},style:{padding:"9px 4px",borderRadius:8,border:on?"2px solid "+C.gb:"1px solid "+C.bd,background:on?C.gn+"22":C.cd,color:on?C.gb:C.dm,fontSize:11,fontWeight:on?700:400,fontFamily:"inherit",cursor:"pointer",textAlign:"center"}},c)})),h("div",{style:{marginTop:8,fontSize:10,color:C.dm}},eC.length+" clubs")),
+    h("div",{style:Object.assign({},CD,{background:C.or+"08",borderColor:C.or})},
+      h("div",{style:{fontSize:13,fontWeight:700,color:C.or,marginBottom:4}},"Difficulty"),
+      h("div",{style:{fontSize:11,color:C.dm,marginBottom:10}},"How strict is your 'on target' call? Pick one and stick with it for consistent scores."),
+      h("div",{style:{display:"flex",flexDirection:"column",gap:6}},Object.entries(DIFFS).map(function(x){
+        var k=x[0],d=x[1],on=dfc===k;
+        return h("button",{key:k,onClick:function(){wDf(k)},style:{padding:"10px 14px",borderRadius:8,border:on?"2px solid "+d.color:"1px solid "+C.bd,background:on?d.color+"22":C.cd,color:on?d.color:C.dm,fontSize:13,fontFamily:"inherit",cursor:"pointer",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center"}},
+          h("div",null,h("strong",{style:{color:on?d.color:C.tx}},d.label),h("div",{style:{fontSize:10,marginTop:2}},d.desc)),
+          on?h("span",{style:{fontSize:14}},"\u2713"):null
+        );
+      }))
+    ),
     h("div",{style:CD},h("div",{style:{fontSize:12,color:C.dm,lineHeight:1.6}},h("strong",{style:{color:C.tx}},"Zone targeting: "),"The caddy gives you two markers as a target zone. Land between them = on target. Short of the lower marker = short. Past the upper marker = long.")),
     h("div",{style:{padding:"8px 16px 0"}},h("button",{style:BT("o"),onClick:exportCSV},"\uD83D\uDCCA Export CSV ("+sL.length+" shots)")),
     h("div",{style:{padding:"4px 16px 0"}},h("button",{style:BT("o"),onClick:triggerImport},"\uD83D\uDCC2 Import CSV")),
@@ -539,6 +575,7 @@ function App(){
           !zone||zone.single?null:h("div",{style:{fontSize:11,color:C.dm,marginTop:4}},"Land between the two markers = on target"),
           h("div",{style:{fontSize:11,color:C.dm,marginTop:4}},"Est. "+(cY[aC]||"?")+" yds")
         ),
+        h("div",{style:{fontSize:10,color:DIFFS[dfc].color,marginTop:2,padding:"4px 0",borderRadius:4}},"\u25C9 "+DIFFS[dfc].label+": "+DIFFS[dfc].desc),
         h(MT,{shots:sL,club:aC,dist:zone?zone.mid:0})
       ):
       // Holed out
@@ -581,7 +618,7 @@ function App(){
     var tsh=r.reduce(function(a,x){return a+x.shots.length},0);
     return h("div",{style:{paddingBottom:32}},dlg,
       h("div",{style:{background:"linear-gradient(180deg,#1a2e1a 0%,"+C.bg+" 100%)",padding:"14px 16px 10px",borderBottom:"1px solid "+C.bd,textAlign:"center"}},h("h1",{style:{fontSize:18,fontWeight:700,color:C.go,letterSpacing:2,textTransform:"uppercase"}},"Scorecard"),h("p",{style:{fontSize:10,color:C.dm,letterSpacing:3,marginTop:3,textTransform:"uppercase"}},"Par "+tp)),
-      h("div",{style:Object.assign({},CD,{textAlign:"center"})},h("div",{style:{fontSize:42,fontWeight:700,color:sdc(diff)}},(diff>=0?"+":"")+diff),h("div",{style:{fontSize:13,color:C.dm}},ts+" strokes \u00B7 Par "+tp),h("div",{style:{fontSize:12,color:C.dm,marginTop:4}},tsh>0?Math.round(hc/tsh*100):0,"% on-target")),
+      h("div",{style:Object.assign({},CD,{textAlign:"center"})},h("div",{style:{fontSize:42,fontWeight:700,color:sdc(diff)}},(diff>=0?"+":"")+diff),h("div",{style:{fontSize:13,color:C.dm}},ts+" strokes \u00B7 Par "+tp),h("div",{style:{fontSize:12,color:C.dm,marginTop:4}},tsh>0?Math.round(hc/tsh*100):0,"% on-target"),h("div",{style:{fontSize:10,color:DIFFS[dfc].color,marginTop:4}},DIFFS[dfc].label+" difficulty")),
       h("div",{style:CD},
         h("div",{style:{display:"grid",gridTemplateColumns:"30px 46px 34px 38px 38px 1fr",gap:2,paddingBottom:6,borderBottom:"1px solid "+C.bd,fontSize:9,color:C.dm,letterSpacing:1,textTransform:"uppercase"}},h("span",null,"#"),h("span",null,"Dist"),h("span",null,"Par"),h("span",null,"Shts"),h("span",null,"Scr"),h("span",null,"+/-")),
         r.map(function(x,i){var s2=scH(x),d2=s2-x.par;return h("div",{key:i,style:{display:"grid",gridTemplateColumns:"30px 46px 34px 38px 38px 1fr",gap:2,padding:"6px 0",borderBottom:i<8?"1px solid "+C.bd:"none",fontSize:13}},h("span",{style:{fontWeight:700}},i+1),h("span",{style:{color:C.dm}},x.dist+"y"),h("span",{style:{color:pc(x.par)}},x.par),h("span",{style:{color:C.dm}},x.shots.length),h("span",{style:{fontWeight:700}},s2),h("span",{style:{color:sdc(d2),fontWeight:700}},(d2>=0?"+":"")+d2))}),
