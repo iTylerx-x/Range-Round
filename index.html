@@ -59,44 +59,31 @@ function genR(){
   });
 }
 
-function pickC(rem,clubs,cy,tee,used,par){
-  // Always use Driver on par 4+ tee shots if it's in the bag
+// Pick target marker: largest marker <= remaining distance
+function pickMk(rem,en){
+  var valid=en.filter(function(m){return m<=rem}).sort(function(a,b){return b-a});
+  if(valid.length)return valid[0];
+  return Math.min.apply(null,en);
+}
+
+// Pick best club for a given marker distance
+function pickC(marker,clubs,cy,tee,used,par){
   if(tee&&par>=4&&clubs.indexOf("Driver")>=0)return"Driver";
   var best=null,bd=9999;
-  var unused=clubs.filter(function(c){return!used||!used.has(c)});
-  for(var i=0;i<unused.length;i++){var c=unused[i];if(c==="Driver"&&!tee)continue;var e=cy[c]||DY[c]||150;var d=Math.abs(e-rem);if(d<=40&&d<bd){bd=d;best=c;}}
-  if(best)return best;bd=9999;best=null;
-  for(var i=0;i<clubs.length;i++){var c=clubs[i];if(c==="Driver"&&!tee)continue;var e=cy[c]||DY[c]||150;var d=Math.abs(e-rem);if(d<bd){bd=d;best=c;}}
+  for(var i=0;i<clubs.length;i++){
+    var c=clubs[i];
+    if(c==="Driver"&&!tee)continue;
+    var est=cy[c]||DY[c]||150;
+    var d=Math.abs(est-marker);
+    if(d<bd){bd=d;best=c;}
+  }
   return best;
 }
 
-// Get target zone: two markers the club distance falls between
-// Returns {lo, hi, mid, single} - single=true if club matches a marker exactly
-function getZone(club,rem,en,cy){
-  var est=cy[club]||DY[club]||150;
-  var cap=Math.min(est,rem);
-  var sorted=en.filter(function(m){return m<=rem+25}).sort(function(a,b){return a-b});
-  if(!sorted.length)sorted=[Math.min.apply(null,en)];
-
-  // Find the two markers that bracket the club estimate
-  var lo=null,hi=null;
-  for(var i=0;i<sorted.length;i++){
-    if(sorted[i]<=cap)lo=sorted[i];
-    if(sorted[i]>=cap&&hi===null)hi=sorted[i];
-  }
-  if(lo===null)lo=sorted[0];
-  if(hi===null)hi=sorted[sorted.length-1];
-
-  // If lo===hi, club matches a marker exactly (or only one marker available)
-  if(lo===hi)return{lo:lo,hi:hi,mid:lo,single:true};
-  return{lo:lo,hi:hi,mid:Math.round((lo+hi)/2),single:false};
-}
-
-function calcAdv(zone,rem,res){
-  var mk=zone.mid;
+function calcAdv(mk,rem,res){
   if(res==="hit"||res==="miss_left"||res==="miss_right")return Math.min(mk,rem);
-  if(res==="miss_short")return Math.min(Math.max(zone.lo-25,0),rem);
-  if(res==="miss_long")return Math.min(zone.hi+25,rem);
+  if(res==="miss_short")return Math.min(Math.max(mk-25,0),rem);
+  if(res==="miss_long")return Math.min(mk+25,rem);
   return Math.min(mk,rem);
 }
 
@@ -153,7 +140,7 @@ function MT(props){
 
 /* ── Hole Visual ── */
 function HV(props){
-  var ho=props.hole,zone=props.zone,hazAct=props.hazActive,sz=240,cx=sz/2,r=sz*.26,fw=sz*.2;
+  var ho=props.hole,t=props.target,hazAct=props.hazActive,sz=240,cx=sz/2,r=sz*.26,fw=sz*.2;
   var pct=ho.dist>0?1-ho.rem/ho.dist:1;var by=sz*.82-pct*(sz*.52);var pcol=pc(ho.par);
   var ch=[
     h("rect",{key:"bg",width:sz,height:sz,rx:16,fill:"#1a3a1a"}),
@@ -178,21 +165,11 @@ function HV(props){
     ch.push(h("rect",{key:"hazr",x:cx+fw/2+8,y:sz*.2,width:cx-fw/2-10,height:sz*.5,rx:8,fill:hcol2,opacity:.15}));
     ch.push(h("text",{key:"hazrt",x:cx+(cx+fw/2+8)/2+4,y:sz*.46,textAnchor:"middle",fill:hcol2,fontSize:9,fontWeight:700,opacity:.8},ho.hazR==="water"?"WATER":"BUNKER"));
   }
-  // Draw zone lines
-  if(!ho.done&&zone&&ho.rem>0){
-    var loY=by-(zone.lo/Math.max(ho.rem,1))*(by-sz*.28);
-    var hiY=by-(zone.hi/Math.max(ho.rem,1))*(by-sz*.28);
-    if(!zone.single){
-      // Zone band
-      ch.push(h("rect",{key:"zb",x:cx-fw/2+2,y:hiY,width:fw-4,height:loY-hiY,rx:4,fill:C.gb,opacity:.12}));
-      ch.push(h("line",{key:"zlo",x1:cx-fw/2+4,y1:loY,x2:cx+fw/2-4,y2:loY,stroke:C.gb,strokeWidth:1,strokeDasharray:"4 3",opacity:.6}));
-      ch.push(h("text",{key:"zlot",x:cx+fw/2+2,y:loY+3,fill:C.gb,fontSize:8,opacity:.8},zone.lo+"y"));
-      ch.push(h("line",{key:"zhi",x1:cx-fw/2+4,y1:hiY,x2:cx+fw/2-4,y2:hiY,stroke:C.gb,strokeWidth:1,strokeDasharray:"4 3",opacity:.6}));
-      ch.push(h("text",{key:"zhit",x:cx+fw/2+2,y:hiY+3,fill:C.gb,fontSize:8,opacity:.8},zone.hi+"y"));
-    }else{
-      ch.push(h("line",{key:"zs",x1:cx-fw/2+4,y1:loY,x2:cx+fw/2-4,y2:loY,stroke:C.go,strokeWidth:1,strokeDasharray:"4 3",opacity:.5}));
-      ch.push(h("text",{key:"zst",x:cx+fw/2+2,y:loY+3,fill:C.go,fontSize:9,opacity:.7},zone.lo+"y"));
-    }
+  // Draw target marker line
+  if(!ho.done&&t>0&&ho.rem>0){
+    var tY=by-(t/Math.max(ho.rem,1))*(by-sz*.28);
+    ch.push(h("line",{key:"tl",x1:cx-fw/2+4,y1:tY,x2:cx+fw/2-4,y2:tY,stroke:C.go,strokeWidth:1.5,strokeDasharray:"4 3",opacity:.6}));
+    ch.push(h("text",{key:"tt",x:cx+fw/2+2,y:tY+3,fill:C.go,fontSize:9,opacity:.8},t+"y"));
   }
   ch.push(h("text",{key:"lb",x:cx,y:sz*.95,textAnchor:"middle",fill:"#c9a84c",fontSize:11,fontFamily:"monospace",fontWeight:700},ho.done?"HOLED OUT":ho.rem+" YDS LEFT"));
   return h("svg",{viewBox:"0 0 "+sz+" "+sz,width:sz,height:sz,style:{display:"block",margin:"0 auto"}},ch);
@@ -248,16 +225,14 @@ function App(){
   function logS(resId){
     if(!rnd)return;var ho=rnd[cH];if(ho.done)return;
     var rem=ho.rem;var tee=ho.shots.length===0;var used=getUsed();
-    var club=pickC(rem,eC,cY,tee,used,ho.par);
-    var zone=getZone(club,rem,eD,cY);
-    var adv=calcAdv(zone,rem,resId);
+    var marker=pickMk(rem,eD);
+    var club=pickC(marker,eC,cY,tee,used,ho.par);
+    var adv=calcAdv(marker,rem,resId);
     var nr2=Math.max(rem-adv,0);var minD=Math.min.apply(null,eD);
-    var shotNum=ho.shots.length+1; // this will be the Nth shot (1-based)
-    var shotsLeft=ho.par-1-shotNum; // how many more shots needed after this one (birdie pace)
+    var shotNum=ho.shots.length+1;
+    var shotsLeft=ho.par-1-shotNum;
     var sortedDist=eD.slice().sort(function(a,b){return a-b});
 
-    // Get the cap distance: need enough remaining for shotsLeft more shots
-    // If shotsLeft=0, can complete (cap at minD). If 1, cap at 2nd marker. If 2, cap at 3rd, etc.
     function getCap(needMore){
       if(needMore<=0)return minD;
       var idx=Math.min(needMore,sortedDist.length-1);
@@ -266,25 +241,20 @@ function App(){
     var capDist=getCap(shotsLeft);
 
     if(rem<=minD){
-      // In hole-out zone: only complete if no more shots needed
       if(resId==="hit"&&shotsLeft<=0)nr2=0;
       else nr2=rem;
     }else if(shotsLeft<=0){
-      // This shot CAN complete the hole (birdie pace reached)
-      // Allow natural advance, but misses still can't hole out
-      if(resId==="hit"&&nr2<=minD)nr2=0; // clean hit completes
-      else if(resId!=="hit"&&nr2<minD)nr2=minD; // miss caps at min
+      if(resId==="hit"&&nr2<=minD)nr2=0;
+      else if(resId!=="hit"&&nr2<minD)nr2=minD;
     }else{
-      // Still need more shots after this — cap at appropriate distance
       if(nr2<capDist)nr2=capDist;
     }
 
-    // Penalty: hit=0, normal miss=+1, hazard only active on designated shot
     var pen=0;
-    var shotIdx=ho.shots.length; // current shot index (0-based, before this shot is added)
+    var shotIdx=ho.shots.length;
     var hazActive=(ho.hazL||ho.hazR)&&ho.hazShot===shotIdx;
     if(resId!=="hit"){
-      pen=1; // base miss penalty
+      pen=1;
       if(hazActive){
         if(resId==="miss_left"&&ho.hazL){pen=ho.hazL==="water"?3:2;}
         if(resId==="miss_right"&&ho.hazR){pen=ho.hazR==="water"?3:2;}
@@ -296,7 +266,7 @@ function App(){
       if(resId==="miss_right"&&ho.hazR)hazHit=ho.hazR;
     }
 
-    var shot={club:club,hd:ho.dist,td:zone.mid,zlo:zone.lo,zhi:zone.hi,res:resId,pen:pen,hazHit:hazHit,hazActive:hazActive,adv:adv,remA:nr2,par:ho.par,ts:Date.now()};
+    var shot={club:club,hd:ho.dist,td:marker,res:resId,pen:pen,hazHit:hazHit,hazActive:hazActive,adv:adv,remA:nr2,par:ho.par,ts:Date.now()};
     var nRnd=rnd.slice();nRnd[cH]=Object.assign({},ho,{shots:ho.shots.concat([shot]),rem:nr2,done:nr2===0});
     sRnd(nRnd);wSL(sL.concat([shot]));wCur(nRnd,cH);
   }
@@ -305,8 +275,8 @@ function App(){
   function resetAll(){sCS(0);sCf({t:"Reset All Data?",m:"Erases all shots, rounds, and settings.",l:"Yes, Reset Everything",dbl:true,fn:function(){sSL([]);sRH([]);sRnd(null);sCH(0);sED(DEF_DIST);sEC(ALL_CLUBS.slice());sDiff("standard");["shots","hist","cur","dist","clubs","diff"].forEach(function(k){LS.d(k)});sCf(null);sv("menu");}});}
 
   function exportCSV(){
-    if(!sL.length)return;var hdr="timestamp,date,club,zone_lo,zone_hi,target_mid,hole_yds,par,hazard_hit,result,penalty,remaining\n";
-    var rows=sL.map(function(s){return[s.ts,new Date(s.ts).toISOString(),s.club,s.zlo||s.td,s.zhi||s.td,s.td,s.hd,s.par,s.hazHit||"none",s.res,s.pen,s.remA].join(",")}).join("\n");
+    if(!sL.length)return;var hdr="timestamp,date,club,target_marker,hole_yds,par,hazard_hit,result,penalty,remaining\n";
+    var rows=sL.map(function(s){return[s.ts,new Date(s.ts).toISOString(),s.club,s.td,s.hd,s.par,s.hazHit||"none",s.res,s.pen,s.remA].join(",")}).join("\n");
     var blob=new Blob([hdr+rows],{type:"text/csv"});var a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="range-round-"+new Date().toISOString().slice(0,10)+".csv";document.body.appendChild(a);a.click();document.body.removeChild(a);
   }
 
@@ -367,12 +337,10 @@ function App(){
   function logCal(resId){
     var club=calClub();
     var est=cY[club]||DY[club]||150;
-    var zone=getZone(club,est,eD,cY);
-    // Only log distance-relevant results: hit, miss_short, miss_long
-    // Left/right are excluded in calibration — only distance matters
+    var marker=pickMk(est,eD);
     var shot={
       ts:Date.now(),club:club,
-      zlo:zone.lo,zhi:zone.hi,td:zone.mid,
+      td:marker,
       hd:0,par:0,res:resId,
       pen:0,adv:0,remA:0
     };
@@ -434,7 +402,7 @@ function App(){
         );
       }))
     ),
-    h("div",{style:CD},h("div",{style:{fontSize:12,color:C.dm,lineHeight:1.6}},h("strong",{style:{color:C.tx}},"Zone targeting: "),"The caddy gives you two markers as a target zone. Land between them = on target. Short of the lower marker = short. Past the upper marker = long.")),
+    h("div",{style:CD},h("div",{style:{fontSize:12,color:C.dm,lineHeight:1.6}},h("strong",{style:{color:C.tx}},"How it works: "),"The caddy picks a marker and the best club for it. Aim at that one sign. Did it land there? Yes = on target. Short, long, left, right = miss.")),
     h("div",{style:{padding:"8px 16px 0"}},h("button",{style:BT("o"),onClick:exportCSV},"\uD83D\uDCCA Export CSV ("+sL.length+" shots)")),
     h("div",{style:{padding:"4px 16px 0"}},h("button",{style:BT("o"),onClick:triggerImport},"\uD83D\uDCC2 Import CSV")),
     h("div",{style:{padding:"8px 16px 0"}},h("button",{style:BT("d"),onClick:resetAll},"Reset All Data"))
@@ -452,15 +420,13 @@ function App(){
   if(vw==="calibrate"){
     var club=calClub();
     var est=cY[club]||DY[club]||150;
-    var zone=getZone(club,est,eD,cY);
+    var calMk=pickMk(est,eD);
     var clubShots=sL.filter(function(s){return s.club===club}).length;
     var thisSessionCt=calCts[club]||0;
-    var zoneLabel=zone.single?"\u2192 "+zone.lo+" yd marker":"\u2192 Between "+zone.lo+"\u2013"+zone.hi+" yd markers";
     var totalDone=Object.values(calCts).reduce(function(a,v){return a+v},0);
 
     return h("div",{style:{paddingBottom:32}},dlg,
       HBar("Calibrate",function(){sv("menu")},"\u2190 Done"),
-      // Progress bar
       h("div",{style:{padding:"8px 16px"}},
         h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:10,color:C.dm,marginBottom:4}},
           h("span",null,"Club "+(calIdx+1)+" of "+eC.length),
@@ -470,42 +436,37 @@ function App(){
           h("div",{style:{background:C.go,height:"100%",width:Math.round((calIdx/eC.length)*100)+"%",borderRadius:4,transition:"width 0.3s"}})
         )
       ),
-      // Club assignment
       h("div",{style:Object.assign({},CD,{textAlign:"center",background:C.go+"0d",borderColor:C.gd})},
         h("div",{style:{fontSize:10,color:C.gd,letterSpacing:2,textTransform:"uppercase"}},"Calibrating \u2014 Full Swing"),
         h("div",{style:{fontSize:36,fontWeight:700,color:C.tx,margin:"8px 0"}},club),
-        h("div",{style:{fontSize:14,color:zone.single?C.go:C.gb,marginTop:4}},zoneLabel),
-        !zone.single?h("div",{style:{fontSize:11,color:C.dm,marginTop:4}},"Land between markers = in the zone"):null,
+        h("div",{style:{fontSize:16,color:C.go,marginTop:4}},"\u2192 "+calMk+" yd marker"),
         h("div",{style:{fontSize:11,color:C.dm,marginTop:8}},"Shot "+(thisSessionCt+1)+" of "+CAL_SHOTS+" \u00B7 Est. "+est+" yds"),
-        h("div",{style:{fontSize:10,color:C.or,marginTop:6}},"Hit a full swing. Only log clean strikes \u2014 skip mishits.")
+        h("div",{style:{fontSize:10,color:C.or,marginTop:6}},"Full swing, clean strikes only.")
       ),
-      // Distance-only input
       h("div",{style:{padding:"4px 16px"}},
-        h("div",{style:{fontSize:10,color:C.dm,letterSpacing:2,textTransform:"uppercase",marginBottom:6,textAlign:"center"}},"Only log good swings \u2014 how far did it go?"),
+        h("div",{style:{fontSize:10,color:C.dm,letterSpacing:2,textTransform:"uppercase",marginBottom:6,textAlign:"center"}},"How far did it go?"),
         h("div",{style:{display:"flex",flexDirection:"column",gap:8,maxWidth:300,margin:"0 auto"}},
           h("button",{onClick:function(){logCal("miss_long")},style:Object.assign({},SM(),{padding:"14px 12px",borderColor:C.gd,display:"flex",alignItems:"center",justifyContent:"center",gap:8})},
             h("span",{style:{fontSize:18}},"\u2B06\uFE0F"),
-            h("span",{style:{fontSize:14}},zone.single?"Past the "+zone.lo+" marker":"Past the "+zone.hi+" marker")
+            h("span",{style:{fontSize:14}},"Past the "+calMk+" marker")
           ),
           h("button",{onClick:function(){logCal("hit")},style:Object.assign({},SM(true),{padding:"16px 12px",background:C.gn+"33",borderColor:C.gb,borderWidth:2,display:"flex",alignItems:"center",justifyContent:"center",gap:8})},
             h("span",{style:{fontSize:22}},"\uD83C\uDFAF"),
-            h("span",{style:{fontSize:14,color:C.gb,fontWeight:700}},zone.single?"At the "+zone.lo+" marker":"Between "+zone.lo+"\u2013"+zone.hi+" markers")
+            h("span",{style:{fontSize:14,color:C.gb,fontWeight:700}},"At the "+calMk+" marker")
           ),
           h("button",{onClick:function(){logCal("miss_short")},style:Object.assign({},SM(),{padding:"14px 12px",borderColor:C.gd,display:"flex",alignItems:"center",justifyContent:"center",gap:8})},
             h("span",{style:{fontSize:18}},"\u2B07\uFE0F"),
-            h("span",{style:{fontSize:14}},zone.single?"Short of the "+zone.lo+" marker":"Short of the "+zone.lo+" marker")
+            h("span",{style:{fontSize:14}},"Short of the "+calMk+" marker")
           )
         ),
         h("div",{style:{textAlign:"center",marginTop:12}},
-          h("button",{onClick:skipCalShot,style:{background:"none",border:"none",color:C.dm,fontSize:12,cursor:"pointer",fontFamily:"inherit",textDecoration:"underline"}},"Bad shot / mishit \u2014 don\u2019t log, re-hit")
+          h("button",{onClick:skipCalShot,style:{background:"none",border:"none",color:C.dm,fontSize:12,cursor:"pointer",fontFamily:"inherit",textDecoration:"underline"}},"Mishit \u2014 don\u2019t log, re-hit")
         ),
         h("button",{style:Object.assign({},BT("o"),{fontSize:11}),onClick:skipCalClub},"Skip "+club+" \u2192"),
         h("button",{style:Object.assign({},BT("o"),{fontSize:11}),onClick:function(){sv("menu")}},"Finish Early")
       )
     );
   }
-
-  /* ═══ CALIBRATION DONE ═══ */
   if(vw==="cal_done"){
     return h("div",{style:{paddingBottom:32}},dlg,
       HBar("Calibration",function(){sv("menu")},"\u2190 Menu"),
@@ -534,16 +495,13 @@ function App(){
   /* ═══ ROUND ═══ */
   if(vw==="round"&&rnd){
     var ho=rnd[cH];var used=getUsed();
-    var aC=ho.done?null:pickC(ho.rem,eC,cY,ho.shots.length===0,used,ho.par);
-    var zone=ho.done?null:getZone(aC,ho.rem,eD,cY);
+    var marker=ho.done?0:pickMk(ho.rem,eD);
+    var aC=ho.done?null:pickC(marker,eC,cY,ho.shots.length===0,used,ho.par);
     var sc=scH(ho);var played=rnd.filter(function(x){return x.shots.length>0});
     var tS=played.reduce(function(a,x){return a+scH(x)},0);
     var tP=played.reduce(function(a,x){return a+x.par},0);
     var minD=Math.min.apply(null,eD);var isHO=ho.rem<=minD;
     var isHazShot=!ho.done&&(ho.hazL||ho.hazR)&&ho.hazShot===ho.shots.length;
-
-    // Zone label
-    var zoneLabel=zone?(zone.single?"\u2192 "+zone.lo+" yd marker":"\u2192 Between "+zone.lo+"\u2013"+zone.hi+" yd markers"):"";
 
     return h("div",{style:{paddingBottom:32}},dlg,
       h("div",{style:{background:"linear-gradient(180deg,#1a2e1a 0%,"+C.bg+" 100%)",padding:"14px 16px 10px",borderBottom:"1px solid "+C.bd}},h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},h("button",{style:{background:"none",border:"none",color:C.go,fontSize:13,cursor:"pointer",padding:"8px 14px",fontFamily:"inherit"},onClick:function(){sv("menu")}},"\u2190 Menu"),h("h1",{style:{fontSize:14,fontWeight:700,color:C.go,letterSpacing:2,margin:0,textTransform:"uppercase"}},"Hole "+ho.hn),h("div",{style:{padding:"0 8px"}},h("span",{style:BG(pc(ho.par))},"Par "+ho.par)))),
@@ -558,8 +516,8 @@ function App(){
         var rc=x.hazR?(x.hazR==="water"?"\uD83D\uDCA7":"\u26F3"):"";
         return h("div",{key:i,style:{width:25,textAlign:"center",fontSize:7,color:C.rd}},lc+rc);
       })),
-      h(HV,{hole:ho,zone:zone,hazActive:isHazShot}),
-      // Hazard warning - only on active hazard shot
+      h(HV,{hole:ho,target:marker,hazActive:isHazShot}),
+      // Hazard warning
       isHazShot?h("div",{style:{display:"flex",justifyContent:"center",gap:6,padding:"6px 0",flexWrap:"wrap"}},
         ho.hazL?h("span",{style:Object.assign({},BG(ho.hazL==="water"?C.rd:"#c4a24a"),{fontSize:10,padding:"4px 10px"})},ho.hazL==="water"?"\uD83D\uDCA7 WATER LEFT +2":"\u26F3 BUNKER LEFT +1"):null,
         ho.hazR?h("span",{style:Object.assign({},BG(ho.hazR==="water"?C.rd:"#c4a24a"),{fontSize:10,padding:"4px 10px"})},ho.hazR==="water"?"\uD83D\uDCA7 WATER RIGHT +2":"\u26F3 BUNKER RIGHT +1"):null
@@ -571,12 +529,11 @@ function App(){
         h("div",{style:{margin:"12px 0 6px",padding:"12px 0",borderTop:"1px solid "+C.bd,borderBottom:"1px solid "+C.bd}},
           h("div",{style:{fontSize:10,color:C.go,letterSpacing:2,textTransform:"uppercase",marginBottom:4}},"Caddy Says"),
           h("div",{style:{fontSize:28,fontWeight:700,color:C.tx}},aC),
-          h("div",{style:{fontSize:14,color:zone&&zone.single?C.go:C.gb,marginTop:4}},zoneLabel),
-          !zone||zone.single?null:h("div",{style:{fontSize:11,color:C.dm,marginTop:4}},"Land between the two markers = on target"),
-          h("div",{style:{fontSize:11,color:C.dm,marginTop:4}},"Est. "+(cY[aC]||"?")+" yds")
+          h("div",{style:{fontSize:16,color:C.go,marginTop:4}},"\u2192 "+marker+" yd marker"),
+          h("div",{style:{fontSize:11,color:C.dm,marginTop:4}},"Est. "+(cY[aC]||"?")+" yds \u00B7 Leaves "+Math.max(ho.rem-marker,0)+" yds")
         ),
         h("div",{style:{fontSize:10,color:DIFFS[dfc].color,marginTop:2,padding:"4px 0",borderRadius:4}},"\u25C9 "+DIFFS[dfc].label+": "+DIFFS[dfc].desc),
-        h(MT,{shots:sL,club:aC,dist:zone?zone.mid:0})
+        h(MT,{shots:sL,club:aC,dist:marker})
       ):
       // Holed out
       h("div",{style:Object.assign({},CD,{textAlign:"center",background:C.gn+"11",borderColor:C.gn})},
@@ -595,18 +552,18 @@ function App(){
         !ho.done?h("div",null,
           h("div",{style:{fontSize:10,color:C.dm,letterSpacing:2,textTransform:"uppercase",marginBottom:8,textAlign:"center"}},"How'd it go?"),
           h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gridTemplateRows:"auto auto auto",gap:6,maxWidth:300,margin:"0 auto"}},
-            h("div"),h("button",{onClick:function(){logS("miss_long")},style:Object.assign({},SM(),{padding:"10px 6px",borderColor:C.gd})},h("div",{style:{fontSize:16}},"\u2B06\uFE0F"),h("div",{style:{fontSize:9,marginTop:1}},"Long")),h("div"),
-            h("button",{onClick:function(){logS("miss_left")},style:Object.assign({},SM(),{padding:"10px 6px",borderColor:isHazShot&&ho.hazL?C.rd:C.gd,background:isHazShot&&ho.hazL?C.rd+"22":"transparent"})},h("div",{style:{fontSize:16}},"\u2B05\uFE0F"),h("div",{style:{fontSize:9,marginTop:1,color:isHazShot&&ho.hazL?C.rd:C.tx}},isHazShot&&ho.hazL?(ho.hazL==="water"?"LEFT +3":"LEFT +2"):"Left")),
+            h("div"),h("button",{onClick:function(){logS("miss_long")},style:Object.assign({},SM(),{padding:"10px 6px",borderColor:C.gd})},h("div",{style:{fontSize:16}},"\u2B06\uFE0F"),h("div",{style:{fontSize:9,marginTop:1,color:C.go}},"Long +1")),h("div"),
+            h("button",{onClick:function(){logS("miss_left")},style:Object.assign({},SM(),{padding:"10px 6px",borderColor:isHazShot&&ho.hazL?C.rd:C.gd,background:isHazShot&&ho.hazL?C.rd+"22":"transparent"})},h("div",{style:{fontSize:16}},"\u2B05\uFE0F"),h("div",{style:{fontSize:9,marginTop:1,color:isHazShot&&ho.hazL?C.rd:C.go}},isHazShot&&ho.hazL?(ho.hazL==="water"?"LEFT +3":"LEFT +2"):"Left +1")),
             h("button",{onClick:function(){logS("hit")},style:Object.assign({},SM(true),{padding:"16px 6px",background:C.gn+"33",borderColor:C.gb,borderWidth:2})},h("div",{style:{fontSize:24}},"\uD83C\uDFAF"),h("div",{style:{fontSize:10,marginTop:2,color:C.gb,fontWeight:700}},"Target")),
-            h("button",{onClick:function(){logS("miss_right")},style:Object.assign({},SM(),{padding:"10px 6px",borderColor:isHazShot&&ho.hazR?C.rd:C.gd,background:isHazShot&&ho.hazR?C.rd+"22":"transparent"})},h("div",{style:{fontSize:16}},"\u27A1\uFE0F"),h("div",{style:{fontSize:9,marginTop:1,color:isHazShot&&ho.hazR?C.rd:C.tx}},isHazShot&&ho.hazR?(ho.hazR==="water"?"RIGHT +3":"RIGHT +2"):"Right")),
-            h("div"),h("button",{onClick:function(){logS("miss_short")},style:Object.assign({},SM(),{padding:"10px 6px",borderColor:C.gd})},h("div",{style:{fontSize:16}},"\u2B07\uFE0F"),h("div",{style:{fontSize:9,marginTop:1}},"Short")),h("div")
+            h("button",{onClick:function(){logS("miss_right")},style:Object.assign({},SM(),{padding:"10px 6px",borderColor:isHazShot&&ho.hazR?C.rd:C.gd,background:isHazShot&&ho.hazR?C.rd+"22":"transparent"})},h("div",{style:{fontSize:16}},"\u27A1\uFE0F"),h("div",{style:{fontSize:9,marginTop:1,color:isHazShot&&ho.hazR?C.rd:C.go}},isHazShot&&ho.hazR?(ho.hazR==="water"?"RIGHT +3":"RIGHT +2"):"Right +1")),
+            h("div"),h("button",{onClick:function(){logS("miss_short")},style:Object.assign({},SM(),{padding:"10px 6px",borderColor:C.gd})},h("div",{style:{fontSize:16}},"\u2B07\uFE0F"),h("div",{style:{fontSize:9,marginTop:1,color:C.go}},"Short +1")),h("div")
           ),
           ho.shots.length>0?h("button",{style:BT("o"),onClick:nextH},cH<8?"Skip Hole \u2192":"Finish Round"):null,
           h("button",{style:Object.assign({},BT("d"),{fontSize:11,padding:"10px 14px"}),onClick:abandon},"Abandon Round")
         ):h("div",null,h("button",{style:BT("p"),onClick:nextH},cH<8?"Next Hole \u2192":"Finish Round"),h("button",{style:Object.assign({},BT("d"),{fontSize:11,padding:"10px 14px"}),onClick:abandon},"Abandon Round"))
       ),
       // Shot log — below action buttons so they don't shift
-      ho.shots.length>0?h("div",{style:CD},h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}},h("div",{style:{fontSize:10,color:C.dm,letterSpacing:2,textTransform:"uppercase"}},"Shots"),h("button",{onClick:undo,style:{background:"none",border:"1px solid "+C.bd,borderRadius:6,padding:"3px 10px",fontSize:10,color:C.go,cursor:"pointer",fontFamily:"inherit"}},"\u21A9 Undo")),ho.shots.map(function(sh,i){var r=RES.find(function(x){return x.id===sh.res});var zStr=sh.zlo&&sh.zhi&&sh.zlo!==sh.zhi?(sh.zlo+"-"+sh.zhi+"y"):((sh.td||"")+"y");return h("div",{key:i,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0",borderBottom:i<ho.shots.length-1?"1px solid "+C.bd:"none",fontSize:12}},h("span",null,r?r.em:""," ",h("strong",null,sh.club),h("span",{style:{color:C.dm,fontSize:10,marginLeft:3}},"\u2192"+zStr)),h("span",{style:{fontSize:11}},h("span",{style:{color:sh.res==="hit"?C.gb:sh.pen>=2?C.rd:C.go}},r?r.label:""),sh.pen>0?h("span",{style:{color:C.rd}}," +"+sh.pen):null,h("span",{style:{color:C.dm,marginLeft:4}},"("+sh.remA+"y)")))})):null
+      ho.shots.length>0?h("div",{style:CD},h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}},h("div",{style:{fontSize:10,color:C.dm,letterSpacing:2,textTransform:"uppercase"}},"Shots"),h("button",{onClick:undo,style:{background:"none",border:"1px solid "+C.bd,borderRadius:6,padding:"3px 10px",fontSize:10,color:C.go,cursor:"pointer",fontFamily:"inherit"}},"\u21A9 Undo")),ho.shots.map(function(sh,i){var r=RES.find(function(x){return x.id===sh.res});return h("div",{key:i,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0",borderBottom:i<ho.shots.length-1?"1px solid "+C.bd:"none",fontSize:12}},h("span",null,r?r.em:""," ",h("strong",null,sh.club),h("span",{style:{color:C.dm,fontSize:10,marginLeft:3}},"\u2192"+sh.td+"y")),h("span",{style:{fontSize:11}},h("span",{style:{color:sh.res==="hit"?C.gb:sh.pen>=2?C.rd:C.go}},r?r.label:""),sh.pen>0?h("span",{style:{color:C.rd}}," +"+sh.pen):null,h("span",{style:{color:C.dm,marginLeft:4}},"("+sh.remA+"y)")))})):null
     );
   }
 
