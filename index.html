@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0c1a0c">
 <meta name="mobile-web-app-capable" content="yes">
 <title>Range Round</title>
@@ -21,77 +20,43 @@ button{-webkit-appearance:none;appearance:none;font-family:inherit;cursor:pointe
 <div id="root"></div>
 <script>
 "use strict";
-var h=React.createElement,us=React.useState,ue=React.useEffect,uc=React.useCallback,um=React.useMemo;
-
+var h=React.createElement,us=React.useState,ue=React.useEffect,um=React.useMemo;
 var LS={g:function(k){try{var v=localStorage.getItem("rr_"+k);return v?JSON.parse(v):null}catch(e){return null}},s:function(k,v){try{localStorage.setItem("rr_"+k,JSON.stringify(v))}catch(e){}},d:function(k){try{localStorage.removeItem("rr_"+k)}catch(e){}}};
 
 var ALL_DIST=[];for(var _i=25;_i<=300;_i+=25)ALL_DIST.push(_i);
 var DEF_DIST=[50,100,150,200,250];
 var ALL_CLUBS=["Driver","3W","5W","7W","3H","4H","5H","3i","4i","5i","6i","7i","8i","9i","PW","GW","SW","LW"];
 var DY={"Driver":250,"3W":230,"5W":210,"7W":190,"3H":200,"4H":185,"5H":175,"3i":190,"4i":180,"5i":170,"6i":160,"7i":150,"8i":140,"9i":130,"PW":120,"GW":105,"SW":90,"LW":70};
-var RES=[{id:"hit",label:"On Target",em:"\uD83C\uDFAF"},{id:"miss_left",label:"Missed Left",em:"\u2B05\uFE0F"},{id:"miss_right",label:"Missed Right",em:"\u27A1\uFE0F"},{id:"miss_short",label:"Missed Short",em:"\u2B07\uFE0F"},{id:"miss_long",label:"Missed Long",em:"\u2B06\uFE0F"}];
 var RPAR=36;
 var PR={3:{mn:100,mx:225},4:{mn:280,mx:450},5:{mn:450,mx:575}};
+var DIFFS={relaxed:{label:"Relaxed",desc:"On the green (~30 yds)",color:"#5aba5a"},strict:{label:"Strict",desc:"Right at the sign",color:"#c44a4a"}};
+
+// Results: hit, 4 cardinals, 4 diagonals, mishit
+var RES=[
+  {id:"hit",em:"\uD83C\uDFAF",lb:"Target",p:0,adv:"full"},
+  {id:"miss_short",em:"\u2B07\uFE0F",lb:"Short",p:1,adv:"short"},
+  {id:"miss_long",em:"\u2B06\uFE0F",lb:"Long",p:1,adv:"long"},
+  {id:"miss_left",em:"\u2B05\uFE0F",lb:"Left",p:1,adv:"full"},
+  {id:"miss_right",em:"\u27A1\uFE0F",lb:"Right",p:1,adv:"full"},
+  {id:"miss_short_left",em:"\u2199\uFE0F",lb:"Short-L",p:1,adv:"short"},
+  {id:"miss_short_right",em:"\u2198\uFE0F",lb:"Short-R",p:1,adv:"short"},
+  {id:"miss_long_left",em:"\u2196\uFE0F",lb:"Long-L",p:1,adv:"long"},
+  {id:"miss_long_right",em:"\u2197\uFE0F",lb:"Long-R",p:1,adv:"long"},
+  {id:"mishit",em:"\u274C",lb:"Mishit",p:1,adv:"none"}
+];
+function resInfo(id){for(var i=0;i<RES.length;i++)if(RES[i].id===id)return RES[i];return RES[0];}
 
 function genPL(){var co=[];for(var a=0;a<=9;a++)for(var c=0;c<=9-a;c++){var b=9-a-c;if(a*3+b*4+c*5===RPAR)co.push([a,b,c]);}var w=co.map(function(x){var wt=1;if(x[0]>=2&&x[0]<=4&&x[1]>=3&&x[1]<=5&&x[2]>=1&&x[2]<=3)wt=10;else if(x[0]>=1&&x[1]>=2&&x[2]>=1)wt=5;else if(x[1]>=1)wt=2;return{c:x,w:wt}});var tw=w.reduce(function(a,x){return a+x.w},0);var r=Math.random()*tw,ch=w[0].c;for(var i=0;i<w.length;i++){r-=w[i].w;if(r<=0){ch=w[i].c;break;}}var ps=[].concat(Array(ch[0]).fill(3),Array(ch[1]).fill(4),Array(ch[2]).fill(5));for(var i=ps.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=ps[i];ps[i]=ps[j];ps[j]=t;}return ps;}
-function genH(n,p,hazL,hazR){
-  var r=PR[p];var d=r.mn+Math.floor(Math.random()*(r.mx-r.mn+1));
-  // Pre-pick which shot the hazard activates on (0-indexed, within par range)
-  var hasHaz=hazL||hazR;
-  var hazShot=hasHaz?Math.floor(Math.random()*Math.max(p-1,1)):-1; // 0 to par-2, avoids hole-out shot
-  return{hn:n,dist:d,par:p,shots:[],rem:d,done:false,hazL:hazL||null,hazR:hazR||null,hazShot:hazShot};
-}
-function genR(){
-  // Consistent hazard layout every round:
-  // 3 safe, 2 bunker-only, 2 water-only, 2 double (water+bunker)
-  // Total: 4 water placements, 4 bunker placements
-  var configs=[
-    null,null,null, // 3 safe
-    {l:"bunker",r:null},{l:null,r:"bunker"}, // 2 bunker-only (1L,1R)
-    {l:"water",r:null},{l:null,r:"water"},   // 2 water-only (1L,1R)
-    {l:"water",r:"bunker"},{l:"bunker",r:"water"} // 2 double
-  ];
-  // Shuffle
-  for(var i=configs.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=configs[i];configs[i]=configs[j];configs[j]=t;}
-  return genPL().map(function(p,i){
-    var c=configs[i];
-    return genH(i+1,p,c?c.l:null,c?c.r:null);
-  });
-}
-
-// Pick target marker: largest marker <= remaining distance
-function pickMk(rem,en){
-  var valid=en.filter(function(m){return m<=rem}).sort(function(a,b){return b-a});
-  if(valid.length)return valid[0];
-  return Math.min.apply(null,en);
-}
-
-// Pick best club for a given marker distance
-function pickC(marker,clubs,cy,tee,used,par){
-  if(tee&&par>=4&&clubs.indexOf("Driver")>=0)return"Driver";
-  var best=null,bd=9999;
-  for(var i=0;i<clubs.length;i++){
-    var c=clubs[i];
-    if(c==="Driver"&&!tee)continue;
-    var est=cy[c]||DY[c]||150;
-    var d=Math.abs(est-marker);
-    if(d<bd){bd=d;best=c;}
-  }
-  return best;
-}
-
-function calcAdv(mk,rem,res){
-  if(res==="hit"||res==="miss_left"||res==="miss_right")return Math.min(mk,rem);
-  if(res==="miss_short")return Math.min(Math.max(mk-25,0),rem);
-  if(res==="miss_long")return Math.min(mk+25,rem);
-  return Math.min(mk,rem);
-}
-
-function scH(hole){return hole.shots.length+hole.shots.reduce(function(a,s){return a+s.pen},0);}
+function genH(n,p){var r=PR[p];var d=r.mn+Math.floor(Math.random()*(r.mx-r.mn+1));return{hn:n,dist:d,par:p,shots:[],rem:d,done:false};}
+function genR(){return genPL().map(function(p,i){return genH(i+1,p)});}
+function pickMk(rem,en){var v=en.filter(function(m){return m<=rem}).sort(function(a,b){return b-a});return v.length?v[0]:Math.min.apply(null,en);}
+function pickC(marker,clubs,cy,tee,par){if(tee&&par>=4&&clubs.indexOf("Driver")>=0)return"Driver";var best=null,bd=9999;for(var i=0;i<clubs.length;i++){var c=clubs[i];if(c==="Driver"&&!tee)continue;var e=cy[c]||DY[c]||150;var d=Math.abs(e-marker);if(d<bd){bd=d;best=c;}}return best;}
+function calcAdv(mk,rem,advType){if(advType==="full")return Math.min(mk,rem);if(advType==="short")return Math.min(Math.max(mk-25,0),rem);if(advType==="long")return Math.min(mk+25,rem);return 0;}
+function scH(hole){if(hole.skipped)return 0;return hole.shots.length+hole.shots.reduce(function(a,s){return a+s.pen},0);}
+function clubSort(a,b){return ALL_CLUBS.indexOf(a)-ALL_CLUBS.indexOf(b);}
 function scR(r){return r.reduce(function(a,x){return a+scH(x)},0);}
-function parRd(r){return r.reduce(function(a,x){return a+x.par},0);}
+function parRd(r){return r.reduce(function(a,x){return a+(x.skipped?0:x.par)},0);}
 
-/* ── Styles ── */
 var C={bg:"#0c1a0c",cd:"#142214",ca:"#1a2e1a",bd:"#2a4a2a",go:"#c9a84c",gd:"#8a7a3a",gn:"#4a9a4a",gb:"#5aba5a",rd:"#c44a4a",or:"#c47a4a",tx:"#e8e4d8",dm:"#8a8a7a"};
 function pc(p){return p===3?C.gb:p===4?C.go:C.or}
 function sdc(d){return d<0?C.gb:d===0?C.gn:d<=2?C.go:C.rd}
@@ -101,79 +66,11 @@ var CD={background:C.cd,border:"1px solid "+C.bd,borderRadius:12,padding:14,marg
 function BG(c){return{display:"inline-block",padding:"3px 8px",borderRadius:20,fontSize:10,fontWeight:700,background:c+"22",color:c,letterSpacing:1,textTransform:"uppercase"}}
 function GR(n){return{display:"grid",gridTemplateColumns:"repeat("+n+",1fr)",gap:6}}
 
-/* ── SVG Charts ── */
-function LineChart(props){
-  var data=props.data,w=340,ht=200,ref=props.refY;if(!data.length)return null;
-  var vals=data.map(function(d){return d.v});
-  var mn=Math.min.apply(null,vals.concat([ref||999])),mx=Math.max.apply(null,vals.concat([ref||0]));
-  var range=mx-mn||1;var pt=30,pb=25,pl=35,pr=10;var cw=w-pl-pr,ch=ht-pt-pb;
-  function x(i){return pl+(data.length>1?i/(data.length-1):0.5)*cw}
-  function y(v){return pt+(1-(v-mn)/range)*ch}
-  var pts=data.map(function(d,i){return x(i)+","+y(d.v)}).join(" ");
-  var els=[h("rect",{key:"bg",width:w,height:ht,fill:"transparent"})];
-  for(var v=mn;v<=mx;v+=Math.max(1,Math.ceil(range/4))){els.push(h("line",{key:"yt"+v,x1:pl,y1:y(v),x2:w-pr,y2:y(v),stroke:C.bd,strokeWidth:1,strokeDasharray:"3 3"}));els.push(h("text",{key:"ytl"+v,x:pl-4,y:y(v)+3,textAnchor:"end",fill:C.dm,fontSize:9},v));}
-  if(ref!=null){els.push(h("line",{key:"ref",x1:pl,y1:y(ref),x2:w-pr,y2:y(ref),stroke:C.gn,strokeWidth:1.5,strokeDasharray:"6 4"}));els.push(h("text",{key:"reft",x:w-pr+2,y:y(ref)+3,fill:C.gn,fontSize:8},"Par "+ref));}
-  els.push(h("polyline",{key:"line",points:pts,fill:"none",stroke:C.go,strokeWidth:2.5,strokeLinejoin:"round"}));
-  data.forEach(function(d,i){els.push(h("circle",{key:"dot"+i,cx:x(i),cy:y(d.v),r:4,fill:C.go,stroke:C.cd,strokeWidth:1}));els.push(h("text",{key:"lb"+i,x:x(i),y:ht-6,textAnchor:"middle",fill:C.dm,fontSize:9},d.l));});
-  return h("svg",{viewBox:"0 0 "+w+" "+ht,width:"100%",height:ht,style:{display:"block"}},els);
-}
-function BarChartH(props){
-  var data=props.data,w=340,barH=36,pad=10,lw=100;var ht=data.length*(barH+pad)+pad;
-  var mx=Math.max.apply(null,data.map(function(d){return d.v}))||1;var cw=w-lw-60;
-  return h("svg",{viewBox:"0 0 "+w+" "+ht,width:"100%",height:ht,style:{display:"block"}},data.map(function(d,i){var y=pad+i*(barH+pad);var bw=Math.max(d.v/mx*cw,2);var cols=["#c44a4a","#c9a84c","#5aba5a"];return h("g",{key:i},h("text",{x:lw-6,y:y+barH/2+4,textAnchor:"end",fill:C.dm,fontSize:10},d.l),h("rect",{x:lw,y:y,width:bw,height:barH,rx:6,fill:cols[i%3]}),h("text",{x:lw+bw+6,y:y+barH/2+4,fill:C.tx,fontSize:11},d.v.toFixed(2)))}));
-}
+function LineChart(props){var data=props.data,w=340,ht=200,ref=props.refY;if(!data.length)return null;var vals=data.map(function(d){return d.v});var mn=Math.min.apply(null,vals.concat([ref||999])),mx=Math.max.apply(null,vals.concat([ref||0]));var range=mx-mn||1;var pt=30,pb=25,pl=35,pr=10;var cw=w-pl-pr,ch=ht-pt-pb;function x(i){return pl+(data.length>1?i/(data.length-1):0.5)*cw}function y(v){return pt+(1-(v-mn)/range)*ch}var pts=data.map(function(d,i){return x(i)+","+y(d.v)}).join(" ");var els=[h("rect",{key:"bg",width:w,height:ht,fill:"transparent"})];for(var v=mn;v<=mx;v+=Math.max(1,Math.ceil(range/4))){els.push(h("line",{key:"yt"+v,x1:pl,y1:y(v),x2:w-pr,y2:y(v),stroke:C.bd,strokeWidth:1,strokeDasharray:"3 3"}));els.push(h("text",{key:"ytl"+v,x:pl-4,y:y(v)+3,textAnchor:"end",fill:C.dm,fontSize:9},v));}if(ref!=null){els.push(h("line",{key:"ref",x1:pl,y1:y(ref),x2:w-pr,y2:y(ref),stroke:C.gn,strokeWidth:1.5,strokeDasharray:"6 4"}));els.push(h("text",{key:"reft",x:w-pr+2,y:y(ref)+3,fill:C.gn,fontSize:8},"Par "+ref));}els.push(h("polyline",{key:"line",points:pts,fill:"none",stroke:C.go,strokeWidth:2.5,strokeLinejoin:"round"}));data.forEach(function(d,i){els.push(h("circle",{key:"dot"+i,cx:x(i),cy:y(d.v),r:4,fill:C.go,stroke:C.cd,strokeWidth:1}));els.push(h("text",{key:"lb"+i,x:x(i),y:ht-6,textAnchor:"middle",fill:C.dm,fontSize:9},d.l));});return h("svg",{viewBox:"0 0 "+w+" "+ht,width:"100%",height:ht,style:{display:"block"}},els);}
 
-/* ── Miss Tendency ── */
-function MT(props){
-  var shots=props.shots,club=props.club,dist=props.dist;
-  var rel=shots.filter(function(s){return(!club||s.club===club)&&(!dist||s.td===dist)});
-  if(rel.length<3)return null;
-  var ct={hit:0,miss_left:0,miss_right:0,miss_short:0,miss_long:0};
-  rel.forEach(function(s){if(ct[s.res]!=null)ct[s.res]++});
-  var miss=rel.length-ct.hit;if(miss===0)return h("div",{style:{fontSize:11,color:C.gb,padding:"4px 0"}},"\uD83C\uDFAF 100% on target!");
-  var sorted=Object.entries(ct).filter(function(x){return x[0]!=="hit"}).sort(function(a,b){return b[1]-a[1]});
-  var top=sorted[0],tp=Math.round(top[1]/miss*100);
-  var dir={miss_left:"LEFT",miss_right:"RIGHT",miss_short:"SHORT",miss_long:"LONG"};
-  if(tp<35)return h("div",{style:{fontSize:11,color:C.dm,padding:"4px 0"}},"Misses spread evenly");
-  return h("div",{style:{padding:"4px 0"}},h("div",{style:{fontSize:11,color:"#e8c84c"}},"\u26A0 "+tp+"% of misses go ",h("strong",null,dir[top[0]])));
-}
+function BarChartH(props){var data=props.data,w=340,barH=36,pad=10,lw=100;var ht=data.length*(barH+pad)+pad;var mx=Math.max.apply(null,data.map(function(d){return d.v}))||1;var cw=w-lw-60;return h("svg",{viewBox:"0 0 "+w+" "+ht,width:"100%",height:ht,style:{display:"block"}},data.map(function(d,i){var y=pad+i*(barH+pad);var bw=Math.max(d.v/mx*cw,2);var cols=["#c44a4a","#c9a84c","#5aba5a"];return h("g",{key:i},h("text",{x:lw-6,y:y+barH/2+4,textAnchor:"end",fill:C.dm,fontSize:10},d.l),h("rect",{x:lw,y:y,width:bw,height:barH,rx:6,fill:cols[i%3]}),h("text",{x:lw+bw+6,y:y+barH/2+4,fill:C.tx,fontSize:11},d.v.toFixed(2)))}));}
 
-/* ── Hole Visual ── */
-function HV(props){
-  var ho=props.hole,t=props.target,hazAct=props.hazActive,sz=240,cx=sz/2,r=sz*.26,fw=sz*.2;
-  var pct=ho.dist>0?1-ho.rem/ho.dist:1;var by=sz*.82-pct*(sz*.52);var pcol=pc(ho.par);
-  var ch=[
-    h("rect",{key:"bg",width:sz,height:sz,rx:16,fill:"#1a3a1a"}),
-    h("rect",{key:"fw",x:cx-fw/2,y:ho.par===3?sz*.25:sz*.15,width:fw,height:ho.par===3?sz*.55:sz*.65,rx:30,fill:"#2a5a2a"})
-  ];
-  if(ho.par>=4)ch.push(h("rect",{key:"fw2",x:cx-fw/2-6,y:sz*.4,width:fw+12,height:sz*.18,rx:16,fill:"#2a5a2a",opacity:.6}));
-  if(ho.par===5)ch.push(h("rect",{key:"fw3",x:cx-fw/2+4,y:sz*.55,width:fw-8,height:sz*.12,rx:12,fill:"#275427"}));
-  ch.push(h("ellipse",{key:"gn",cx:cx,cy:sz*.28,rx:r,ry:r*.75,fill:"#3a7a3a",stroke:"#4a9a4a",strokeWidth:1.5}));
-  ch.push(h("line",{key:"po",x1:cx,y1:sz*.16,x2:cx,y2:sz*.28,stroke:"#ddd",strokeWidth:2}));
-  ch.push(h("polygon",{key:"fl",points:cx+","+(sz*.16)+" "+(cx+12)+","+(sz*.2)+" "+cx+","+(sz*.24),fill:pcol}));
-  ch.push(h("rect",{key:"te",x:cx-10,y:sz*.82,width:20,height:7,rx:3,fill:"#5a5a4a"}));
-  if(!ho.done)ch.push(h("circle",{key:"bl",cx:cx,cy:by,r:5.5,fill:"#fff",stroke:"#bbb",strokeWidth:1}));
-  if(ho.done)ch.push(h("text",{key:"hd",x:cx,y:sz*.28+4,textAnchor:"middle",fill:"#c9a84c",fontSize:16,fontWeight:700},"\u26F3"));
-  // Hazard visual - only when active
-  if(hazAct&&ho.hazL){
-    var hcol=ho.hazL==="water"?"#3a6aaa":"#c4a24a";
-    ch.push(h("rect",{key:"hazl",x:2,y:sz*.2,width:cx-fw/2-10,height:sz*.5,rx:8,fill:hcol,opacity:.15}));
-    ch.push(h("text",{key:"hazlt",x:(cx-fw/2)/2,y:sz*.46,textAnchor:"middle",fill:hcol,fontSize:9,fontWeight:700,opacity:.8},ho.hazL==="water"?"WATER":"BUNKER"));
-  }
-  if(hazAct&&ho.hazR){
-    var hcol2=ho.hazR==="water"?"#3a6aaa":"#c4a24a";
-    ch.push(h("rect",{key:"hazr",x:cx+fw/2+8,y:sz*.2,width:cx-fw/2-10,height:sz*.5,rx:8,fill:hcol2,opacity:.15}));
-    ch.push(h("text",{key:"hazrt",x:cx+(cx+fw/2+8)/2+4,y:sz*.46,textAnchor:"middle",fill:hcol2,fontSize:9,fontWeight:700,opacity:.8},ho.hazR==="water"?"WATER":"BUNKER"));
-  }
-  // Draw target marker line
-  if(!ho.done&&t>0&&ho.rem>0){
-    var tY=by-(t/Math.max(ho.rem,1))*(by-sz*.28);
-    ch.push(h("line",{key:"tl",x1:cx-fw/2+4,y1:tY,x2:cx+fw/2-4,y2:tY,stroke:C.go,strokeWidth:1.5,strokeDasharray:"4 3",opacity:.6}));
-    ch.push(h("text",{key:"tt",x:cx+fw/2+2,y:tY+3,fill:C.go,fontSize:9,opacity:.8},t+"y"));
-  }
-  ch.push(h("text",{key:"lb",x:cx,y:sz*.95,textAnchor:"middle",fill:"#c9a84c",fontSize:11,fontFamily:"monospace",fontWeight:700},ho.done?"HOLED OUT":ho.rem+" YDS LEFT"));
-  return h("svg",{viewBox:"0 0 "+sz+" "+sz,width:sz,height:sz,style:{display:"block",margin:"0 auto"}},ch);
-}
+function MT(props){var shots=props.shots,club=props.club,dist=props.dist;var rel=shots.filter(function(s){return(!club||s.club===club)&&(!dist||s.td===dist)&&s.res!=="mishit"});if(rel.length<3)return null;var miss=rel.filter(function(s){return s.res!=="hit"}).length;if(miss===0)return h("div",{style:{fontSize:11,color:C.gb,padding:"4px 0"}},"\uD83C\uDFAF 100% on target!");var dirs={};rel.forEach(function(s){if(s.res!=="hit"){dirs[s.res]=(dirs[s.res]||0)+1;}});var sorted=Object.entries(dirs).sort(function(a,b){return b[1]-a[1]});var top=sorted[0],tp=Math.round(top[1]/miss*100);if(tp<30)return h("div",{style:{fontSize:11,color:C.dm,padding:"4px 0"}},"Misses spread evenly");return h("div",{style:{padding:"4px 0"}},h("div",{style:{fontSize:11,color:"#e8c84c"}},"\u26A0 "+tp+"% of misses: "+top[0].replace("miss_","").replace("_","-").toUpperCase()));}
 
 function HBar(title,back,lbl){return h("div",{style:{background:"linear-gradient(180deg,#1a2e1a 0%,"+C.bg+" 100%)",padding:"14px 16px 10px",borderBottom:"1px solid "+C.bd}},h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},h("button",{style:{background:"none",border:"none",color:C.go,fontSize:13,cursor:"pointer",padding:"8px 14px",fontFamily:"inherit"},onClick:back},lbl||"\u2190 Back"),h("h1",{style:{fontSize:14,fontWeight:700,color:C.go,letterSpacing:2,margin:0,textTransform:"uppercase"}},title),h("div",{style:{width:56}})));}
 
@@ -185,400 +82,235 @@ function App(){
   var _rh=us([]),rH=_rh[0],sRH=_rh[1];
   var _ed=us(DEF_DIST),eD=_ed[0],sED=_ed[1];
   var _ec=us(ALL_CLUBS.slice()),eC=_ec[0],sEC=_ec[1];
-  var _diff=us("standard"),dfc=_diff[0],sDiff=_diff[1];
-  var DIFFS={relaxed:{label:"Relaxed",desc:"Would be on the green (~30 yds)",color:"#5aba5a"},standard:{label:"Standard",desc:"Would be pin high (~15 yds)",color:"#c9a84c"},strict:{label:"Strict",desc:"Tap-in putt range (~5 yds)",color:"#c47a4a"},tour:{label:"Tour",desc:"Could read the marker sign",color:"#c44a4a"}};
+  var _diff=us("relaxed"),dfc=_diff[0],sDfc=_diff[1];
   var _dd=us("Driver"),dD=_dd[0],sDD=_dd[1];
   var _ld=us(false),ld=_ld[0],sLd=_ld[1];
   var _cf=us(null),cf=_cf[0],sCf=_cf[1];
   var _cs=us(0),cSt=_cs[0],sCS=_cs[1];
-  var _calIdx=us(0),calIdx=_calIdx[0],sCalIdx=_calIdx[1]; // current club index in calibration
-  var _calCts=us({}),calCts=_calCts[0],sCalCts=_calCts[1]; // {club: shotCount} during calibration
-  var CAL_SHOTS=3; // shots per club to calibrate
+  var _calIdx=us(0),calIdx=_calIdx[0],sCalIdx=_calIdx[1];
+  var _calCts=us({}),calCts=_calCts[0],sCalCts=_calCts[1];
+  var _scSz=us(25),scSz=_scSz[0],sScSz=_scSz[1];
+  var _dfcF=us("all"),dfcF=_dfcF[0],sDfcF=_dfcF[1]; // difficulty filter: "all","relaxed","strict"
+  var _gameR=us(10),gameR=_gameR[0],sGameR=_gameR[1]; // game range for accuracy trend
+  var CAL_SHOTS=3;
 
   var cY=um(function(){
     var cy=Object.assign({},DY);var cd={};
     var sm=eD.slice().sort(function(a,b){return a-b});
     function bel(m){var i=sm.indexOf(m);return i>0?sm[i-1]:Math.max(m-25,0);}
     function abv(m){var i=sm.indexOf(m);return i>=0&&i<sm.length-1?sm[i+1]:m+25;}
-    sL.forEach(function(s){if(!cd[s.club])cd[s.club]=[];var t=s.td;
-      if(s.res==="hit"||s.res==="miss_left"||s.res==="miss_right")cd[s.club].push(t);
-      else if(s.res==="miss_short")cd[s.club].push(bel(t));
-      else if(s.res==="miss_long")cd[s.club].push(abv(t));
+    sL.forEach(function(s){
+      if(s.res==="mishit")return; // skip mishits
+      if(!cd[s.club])cd[s.club]=[];var t=s.td;var ri=resInfo(s.res);
+      if(ri.adv==="full")cd[s.club].push(t);
+      else if(ri.adv==="short")cd[s.club].push(bel(t));
+      else if(ri.adv==="long")cd[s.club].push(abv(t));
     });
     Object.entries(cd).forEach(function(x){if(x[1].length>=3)cy[x[0]]=Math.round(x[1].reduce(function(a,d){return a+d},0)/x[1].length);});
     return cy;
   },[sL,eD]);
 
-  function getUsed(){if(!rnd)return new Set();var u=new Set();rnd.forEach(function(ho){ho.shots.forEach(function(s){u.add(s.club)})});return u;}
-
   ue(function(){
-    sSL(LS.g("shots")||[]);sRH(LS.g("hist")||[]);sED(LS.g("dist")||DEF_DIST);sEC(LS.g("clubs")||ALL_CLUBS.slice());sDiff(LS.g("diff")||"standard");
+    sSL(LS.g("shots")||[]);sRH(LS.g("hist")||[]);sED(LS.g("dist")||DEF_DIST);sEC(LS.g("clubs")||ALL_CLUBS.slice());var ld2=LS.g("diff");sDfc(DIFFS[ld2]?ld2:"relaxed");
     var cur=LS.g("cur");if(cur){sRnd(cur.rnd);sCH(cur.ch||0);sv("round");}sLd(true);
   },[]);
 
-  function wSL(l){sSL(l);LS.s("shots",l);}function wRH(x){sRH(x);LS.s("hist",x);}function wED(x){sED(x);LS.s("dist",x);}function wEC(x){sEC(x);LS.s("clubs",x);}function wDf(x){sDiff(x);LS.s("diff",x);}function wCur(r,c){LS.s("cur",{rnd:r,ch:c});}function dCur(){LS.d("cur");}
+  function wSL(l){sSL(l);LS.s("shots",l);}function wRH(x){sRH(x);LS.s("hist",x);}function wED(x){sED(x);LS.s("dist",x);}function wEC(x){sEC(x);LS.s("clubs",x);}function wDf(x){sDfc(x);LS.s("diff",x);}function wCur(r,c){LS.s("cur",{rnd:r,ch:c});}function dCur(){LS.d("cur");}
   function startR(){var r=genR();sRnd(r);sCH(0);sv("round");wCur(r,0);}
-
   function undo(){if(!rnd)return;var ho=rnd[cH];if(!ho.shots.length)return;var prev=ho.shots.slice(0,-1);var rm=ho.shots[ho.shots.length-1];var rem=ho.dist;prev.forEach(function(s){rem=s.remA});if(!prev.length)rem=ho.dist;var nr=rnd.slice();nr[cH]=Object.assign({},ho,{shots:prev,rem:rem,done:false});sRnd(nr);var nl=sL.slice();var idx=nl.findIndex(function(s){return s.ts===rm.ts});if(idx!==-1)nl.splice(idx,1);wSL(nl);wCur(nr,cH);}
   function abandon(){sCS(0);sCf({t:"Abandon Round?",m:"This round won't be saved.",l:"Abandon",fn:function(){sRnd(null);sCH(0);dCur();sv("menu");sCf(null);}});}
 
   function logS(resId){
     if(!rnd)return;var ho=rnd[cH];if(ho.done)return;
-    var rem=ho.rem;var tee=ho.shots.length===0;var used=getUsed();
+    var rem=ho.rem;var tee=ho.shots.length===0;
     var marker=pickMk(rem,eD);
-    var club=pickC(marker,eC,cY,tee,used,ho.par);
-    var adv=calcAdv(marker,rem,resId);
+    var club=pickC(marker,eC,cY,tee,ho.par);
+    var ri=resInfo(resId);
+    var adv=calcAdv(marker,rem,ri.adv);
     var nr2=Math.max(rem-adv,0);var minD=Math.min.apply(null,eD);
-    var shotNum=ho.shots.length+1;
-    var shotsLeft=ho.par-1-shotNum;
+    var shotNum=ho.shots.length+1;var shotsLeft=ho.par-1-shotNum;
     var sortedDist=eD.slice().sort(function(a,b){return a-b});
-
-    function getCap(needMore){
-      if(needMore<=0)return minD;
-      var idx=Math.min(needMore,sortedDist.length-1);
-      return sortedDist[idx];
-    }
+    function getCap(need){if(need<=0)return minD;var idx=Math.min(need,sortedDist.length-1);return sortedDist[idx];}
     var capDist=getCap(shotsLeft);
-
-    if(rem<=minD){
-      if(resId==="hit"&&shotsLeft<=0)nr2=0;
-      else nr2=rem;
-    }else if(shotsLeft<=0){
-      if(resId==="hit"&&nr2<=minD)nr2=0;
-      else if(resId!=="hit"&&nr2<minD)nr2=minD;
-    }else{
-      if(nr2<capDist)nr2=capDist;
-    }
-
-    var pen=0;
-    var shotIdx=ho.shots.length;
-    var hazActive=(ho.hazL||ho.hazR)&&ho.hazShot===shotIdx;
-    if(resId!=="hit"){
-      pen=1;
-      if(hazActive){
-        if(resId==="miss_left"&&ho.hazL){pen=ho.hazL==="water"?3:2;}
-        if(resId==="miss_right"&&ho.hazR){pen=ho.hazR==="water"?3:2;}
-      }
-    }
-    var hazHit=null;
-    if(hazActive){
-      if(resId==="miss_left"&&ho.hazL)hazHit=ho.hazL;
-      if(resId==="miss_right"&&ho.hazR)hazHit=ho.hazR;
-    }
-
-    var shot={club:club,hd:ho.dist,td:marker,res:resId,pen:pen,hazHit:hazHit,hazActive:hazActive,adv:adv,remA:nr2,par:ho.par,ts:Date.now()};
+    if(rem<=minD){if(resId==="hit"&&shotsLeft<=0)nr2=0;else nr2=rem;}
+    else if(shotsLeft<=0){if(resId==="hit"&&nr2<=minD)nr2=0;else if(resId!=="hit"&&nr2<minD)nr2=minD;}
+    else{if(nr2<capDist)nr2=capDist;}
+    var shot={club:club,hd:ho.dist,td:marker,res:resId,pen:ri.p,adv:adv,remA:nr2,par:ho.par,dfc:dfc,ts:Date.now()};
     var nRnd=rnd.slice();nRnd[cH]=Object.assign({},ho,{shots:ho.shots.concat([shot]),rem:nr2,done:nr2===0});
     sRnd(nRnd);wSL(sL.concat([shot]));wCur(nRnd,cH);
   }
 
-  function nextH(){if(cH<8){var n=cH+1;sCH(n);wCur(rnd,n);}else{wRH(rH.concat([{holes:rnd,date:Date.now()}]));dCur();sv("scorecard");}}
-  function resetAll(){sCS(0);sCf({t:"Reset All Data?",m:"Erases all shots, rounds, and settings.",l:"Yes, Reset Everything",dbl:true,fn:function(){sSL([]);sRH([]);sRnd(null);sCH(0);sED(DEF_DIST);sEC(ALL_CLUBS.slice());sDiff("standard");["shots","hist","cur","dist","clubs","diff"].forEach(function(k){LS.d(k)});sCf(null);sv("menu");}});}
-
-  function exportCSV(){
-    if(!sL.length)return;var hdr="timestamp,date,club,target_marker,hole_yds,par,hazard_hit,result,penalty,remaining\n";
-    var rows=sL.map(function(s){return[s.ts,new Date(s.ts).toISOString(),s.club,s.td,s.hd,s.par,s.hazHit||"none",s.res,s.pen,s.remA].join(",")}).join("\n");
-    var blob=new Blob([hdr+rows],{type:"text/csv"});var a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="range-round-"+new Date().toISOString().slice(0,10)+".csv";document.body.appendChild(a);a.click();document.body.removeChild(a);
+  function skipHole(){
+    if(!rnd)return;var nRnd=rnd.slice();
+    nRnd[cH]=Object.assign({},rnd[cH],{done:true,skipped:true});
+    sRnd(nRnd);wCur(nRnd,cH);
+    nextH();
   }
+  function nextH(){if(cH<8){var n=cH+1;sCH(n);wCur(rnd,n);}else{wRH(rH.concat([{holes:rnd,date:Date.now(),dfc:dfc}]));dCur();sv("scorecard");}}
+  function resetAll(){sCS(0);sCf({t:"Reset All Data?",m:"Erases all shots, rounds, and settings.",l:"Yes, Reset Everything",dbl:true,fn:function(){sSL([]);sRH([]);sRnd(null);sCH(0);sED(DEF_DIST);sEC(ALL_CLUBS.slice());sDfc("relaxed");["shots","hist","cur","dist","clubs","diff"].forEach(function(k){LS.d(k)});sCf(null);sv("menu");}});}
 
-  function triggerImport(){
-    sCS(0);sCf({t:"Import CSV Data?",m:"This will OVERWRITE all your current shot data with the imported file. Your round history and settings will not be affected. Export first if you want a backup.",l:"Choose File to Import",dbl:true,fn:function(){
-      sCf(null);
-      var inp=document.createElement("input");inp.type="file";inp.accept=".csv";
-      inp.onchange=function(ev){
-        var file=ev.target.files[0];if(!file)return;
-        var reader=new FileReader();
-        reader.onload=function(e){
-          try{
-            var text=e.target.result;var lines=text.trim().split("\n");
-            if(lines.length<2){alert("CSV file is empty");return;}
-            // Parse header to find column indices
-            var hdr=lines[0].split(",").map(function(x){return x.trim().toLowerCase()});
-            var ci={ts:hdr.indexOf("timestamp"),club:hdr.indexOf("club"),zlo:hdr.indexOf("zone_lo"),zhi:hdr.indexOf("zone_hi"),td:hdr.indexOf("target_mid"),hd:hdr.indexOf("hole_yds"),par:hdr.indexOf("par"),res:hdr.indexOf("result"),pen:hdr.indexOf("penalty"),rem:hdr.indexOf("remaining")};
-            // Validate required columns
-            if(ci.ts===-1||ci.club===-1||ci.td===-1||ci.res===-1){alert("Invalid CSV format. Required columns: timestamp, club, target_mid, result");return;}
-            var imported=[];
-            for(var i=1;i<lines.length;i++){
-              var cols=lines[i].split(",");if(cols.length<4)continue;
-              var shot={
-                ts:parseInt(cols[ci.ts])||Date.now()+i,
-                club:cols[ci.club]||"",
-                zlo:ci.zlo>=0?parseInt(cols[ci.zlo])||0:0,
-                zhi:ci.zhi>=0?parseInt(cols[ci.zhi])||0:0,
-                td:parseInt(cols[ci.td])||0,
-                hd:ci.hd>=0?parseInt(cols[ci.hd])||0:0,
-                par:ci.par>=0?parseInt(cols[ci.par])||3:3,
-                res:cols[ci.res]||"hit",
-                pen:ci.pen>=0?parseInt(cols[ci.pen])||0:(cols[ci.res]==="hit"?0:1),
-                remA:ci.rem>=0?parseInt(cols[ci.rem])||0:0
-              };
-              if(shot.club&&shot.td>0)imported.push(shot);
-            }
-            if(!imported.length){alert("No valid shots found in CSV");return;}
-            wSL(imported);
-            // Show success
-            sCS(0);sCf({t:"Import Complete",m:imported.length+" shots imported successfully. Your shot data has been replaced.",l:"OK",fn:function(){sCf(null);}});
-          }catch(err){alert("Error reading CSV: "+err.message);}
-        };
-        reader.readAsText(file);
-      };
-      inp.click();
-    }});
-  }
+  function exportCSV(){if(!sL.length)return;var hdr="timestamp,date,club,target_marker,hole_yds,par,difficulty,result,penalty,remaining\n";var rows=sL.map(function(s){return[s.ts,new Date(s.ts).toISOString(),s.club,s.td,s.hd,s.par,s.dfc||"unknown",s.res,s.pen,s.remA].join(",")}).join("\n");var blob=new Blob([hdr+rows],{type:"text/csv"});var a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="range-round-"+new Date().toISOString().slice(0,10)+".csv";document.body.appendChild(a);a.click();document.body.removeChild(a);}
+
+  function triggerImport(){sCS(0);sCf({t:"Import CSV?",m:"This will OVERWRITE all shot data. Export first as backup.",l:"Choose File",dbl:true,fn:function(){sCf(null);var inp=document.createElement("input");inp.type="file";inp.accept=".csv";inp.onchange=function(ev){var file=ev.target.files[0];if(!file)return;var reader=new FileReader();reader.onload=function(e){try{var lines=e.target.result.trim().split("\n");if(lines.length<2)return;var hdr=lines[0].split(",").map(function(x){return x.trim().toLowerCase()});var ci={ts:hdr.indexOf("timestamp"),club:hdr.indexOf("club"),td:hdr.indexOf("target_marker"),hd:hdr.indexOf("hole_yds"),par:hdr.indexOf("par"),res:hdr.indexOf("result"),pen:hdr.indexOf("penalty"),rem:hdr.indexOf("remaining")};if(ci.ts===-1||ci.club===-1||ci.td===-1||ci.res===-1)return;var imported=[];for(var i=1;i<lines.length;i++){var cols=lines[i].split(",");if(cols.length<4)continue;var shot={ts:parseInt(cols[ci.ts])||Date.now()+i,club:cols[ci.club]||"",td:parseInt(cols[ci.td])||0,hd:ci.hd>=0?parseInt(cols[ci.hd])||0:0,par:ci.par>=0?parseInt(cols[ci.par])||3:3,res:cols[ci.res]||"hit",pen:ci.pen>=0?parseInt(cols[ci.pen])||0:0,remA:ci.rem>=0?parseInt(cols[ci.rem])||0:0};if(shot.club&&shot.td>0)imported.push(shot);}if(imported.length){wSL(imported);sCS(0);sCf({t:"Imported",m:imported.length+" shots loaded.",l:"OK",fn:function(){sCf(null);}});}}catch(err){}};reader.readAsText(file);};inp.click();}});}
 
   function tD(d){var n=eD.includes(d)?eD.filter(function(x){return x!==d}):eD.concat([d]).sort(function(a,b){return a-b});if(n.length)wED(n);}
   function tC(c){var n=eC.includes(c)?eC.filter(function(x){return x!==c}):eC.concat([c]);if(n.length)wEC(n);}
-  var dSh=um(function(){return sL.filter(function(s){return s.club===dD})},[sL,dD]);
+  var dSh=um(function(){return sL.filter(function(s){return s.club===dD&&(dfcF==="all"||s.dfc===dfcF)})},[sL,dD,dfcF]);
 
-  // ── Calibration Mode ──
+  // Calibration
   function startCal(){sCalIdx(0);sCalCts({});sv("calibrate");}
-
   function calClub(){return eC[calIdx]||eC[0];}
-
-  function logCal(resId){
-    var club=calClub();
-    var est=cY[club]||DY[club]||150;
-    var marker=pickMk(est,eD);
-    var shot={
-      ts:Date.now(),club:club,
-      td:marker,
-      hd:0,par:0,res:resId,
-      pen:0,adv:0,remA:0
-    };
-    wSL(sL.concat([shot]));
-    var nc=Object.assign({},calCts);
-    nc[club]=(nc[club]||0)+1;
-    sCalCts(nc);
-    if((nc[club]||0)>=CAL_SHOTS){
-      if(calIdx<eC.length-1){sCalIdx(calIdx+1);}
-      else{sv("cal_done");}
-    }
-  }
-
-  // Skip a bad shot during calibration (mishit, chunk, etc) — doesn't log
-  function skipCalShot(){
-    // Don't count it, just let them re-hit
-  }
-
-  function skipCalClub(){
-    if(calIdx<eC.length-1)sCalIdx(calIdx+1);
-    else sv("cal_done");
-  }
-
-  var calProgress=um(function(){
-    var calibrated=0;
-    eC.forEach(function(c){
-      var shots=sL.filter(function(s){return s.club===c});
-      if(shots.length>=CAL_SHOTS)calibrated++;
-    });
-    return{done:calibrated,total:eC.length,pct:eC.length?Math.round(calibrated/eC.length*100):0};
-  },[sL,eC]);
+  function logCal(resId){var club=calClub();var est=cY[club]||DY[club]||150;var mk=pickMk(est,eD);var shot={ts:Date.now(),club:club,td:mk,hd:0,par:0,res:resId,pen:0,adv:0,remA:0,dfc:dfc};wSL(sL.concat([shot]));var nc=Object.assign({},calCts);nc[club]=(nc[club]||0)+1;sCalCts(nc);if((nc[club]||0)>=CAL_SHOTS){if(calIdx<eC.length-1)sCalIdx(calIdx+1);else sv("cal_done");}}
+  function skipCalShot(){}
+  function skipCalClub(){if(calIdx<eC.length-1)sCalIdx(calIdx+1);else sv("cal_done");}
+  var calProgress=um(function(){var done=0;eC.forEach(function(c){if(sL.filter(function(s){return s.club===c}).length>=CAL_SHOTS)done++;});return{done:done,total:eC.length,pct:eC.length?Math.round(done/eC.length*100):0};},[sL,eC]);
 
   if(!ld)return h("div",{style:{background:C.bg,display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh"}},h("p",{style:{color:C.go}},"Loading..."));
 
-  var dlg=cf?h("div",{style:{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.85)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:24}},h("div",{style:{background:C.cd,border:"1px solid "+C.bd,borderRadius:16,padding:24,maxWidth:340,width:"100%",textAlign:"center"}},h("div",{style:{fontSize:16,fontWeight:700,color:C.go,marginBottom:8}},cf.dbl&&cSt===1?"Are you sure?":cf.t),h("div",{style:{fontSize:13,color:C.dm,lineHeight:1.5,marginBottom:20}},cf.dbl&&cSt===1?"This is permanent and cannot be undone.":cf.m),h("button",{onClick:function(){if(cf.dbl&&cSt===0){sCS(1);return;}cf.fn();sCS(0);},style:Object.assign({},BT("d"),{marginTop:0,background:C.rd,color:"#fff",border:"none"})},cf.dbl&&cSt===1?"Yes, I'm Sure":cf.l),h("button",{onClick:function(){sCf(null);sCS(0);},style:Object.assign({},BT("o"),{marginTop:8})},"Cancel"))):null;
+  var dlg=cf?h("div",{style:{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.85)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:24}},h("div",{style:{background:C.cd,border:"1px solid "+C.bd,borderRadius:16,padding:24,maxWidth:340,width:"100%",textAlign:"center"}},h("div",{style:{fontSize:16,fontWeight:700,color:C.go,marginBottom:8}},cf.dbl&&cSt===1?"Are you sure?":cf.t),h("div",{style:{fontSize:13,color:C.dm,lineHeight:1.5,marginBottom:20}},cf.dbl&&cSt===1?"Permanent. Cannot be undone.":cf.m),h("button",{onClick:function(){if(cf.dbl&&cSt===0){sCS(1);return;}cf.fn();sCS(0);},style:Object.assign({},BT("d"),{marginTop:0,background:C.rd,color:"#fff",border:"none"})},cf.dbl&&cSt===1?"Yes, I'm Sure":cf.l),h("button",{onClick:function(){sCf(null);sCS(0);},style:Object.assign({},BT("o"),{marginTop:8})},"Cancel"))):null;
+
+  // ── D-PAD component ──
+  function DPad(props){
+    var onRes=props.onResult;var sz=props.small;
+    var p=sz?"7px 4px":"10px 6px";var f=sz?13:16;var lf=sz?8:9;
+    function b(id,em,lb,col){return h("button",{onClick:function(){onRes(id)},style:Object.assign({},SM(),{padding:p,borderColor:col||C.gd})},h("div",{style:{fontSize:f}},em),h("div",{style:{fontSize:lf,marginTop:1,color:col||C.go}},lb));}
+    return h("div",null,
+      h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:sz?4:6,maxWidth:sz?260:300,margin:"0 auto"}},
+        b("miss_long_left","\u2196\uFE0F","L-L +1"),
+        b("miss_long","\u2B06\uFE0F","Long +1"),
+        b("miss_long_right","\u2197\uFE0F","L-R +1"),
+        b("miss_left","\u2B05\uFE0F","Left +1"),
+        h("button",{onClick:function(){onRes("hit")},style:Object.assign({},SM(true),{padding:sz?"10px 4px":"16px 6px",background:C.gn+"33",borderColor:C.gb,borderWidth:2})},h("div",{style:{fontSize:sz?18:24}},"\uD83C\uDFAF"),h("div",{style:{fontSize:sz?9:10,marginTop:2,color:C.gb,fontWeight:700}},"Target")),
+        b("miss_right","\u27A1\uFE0F","Right +1"),
+        b("miss_short_left","\u2199\uFE0F","S-L +1"),
+        b("miss_short","\u2B07\uFE0F","Short +1"),
+        b("miss_short_right","\u2198\uFE0F","S-R +1")
+      ),
+      h("div",{style:{maxWidth:sz?260:300,margin:"6px auto 0"}},
+        h("button",{onClick:function(){onRes("mishit")},style:Object.assign({},SM(),{padding:sz?"8px":"10px 12px",width:"100%",borderColor:C.rd+"66"})},h("span",{style:{fontSize:sz?12:14}},"\u274C Mishit +1"),h("span",{style:{fontSize:sz?9:10,color:C.dm,marginLeft:6}},"(no distance logged)"))
+      )
+    );
+  }
 
   /* ═══ MENU ═══ */
   if(vw==="menu")return h("div",{style:{paddingBottom:32}},dlg,
     h("div",{style:{background:"linear-gradient(180deg,#1a2e1a 0%,"+C.bg+" 100%)",padding:"28px 16px 20px",textAlign:"center",borderBottom:"1px solid "+C.bd}},h("div",{style:{fontSize:34,marginBottom:4}},"\u26F3"),h("h1",{style:{fontSize:20,fontWeight:700,color:C.go,letterSpacing:2,textTransform:"uppercase"}},"Range Round"),h("p",{style:{fontSize:10,color:C.dm,letterSpacing:3,marginTop:2,textTransform:"uppercase"}},"Driving Range Golf Simulator")),
     h("div",{style:{padding:"14px 16px 0"}},h("button",{style:BT("p"),onClick:startR},"New 9-Hole Round"),h("div",{style:{textAlign:"center",fontSize:11,color:C.dm,marginTop:4}},"Par "+RPAR+" \u00B7 ",h("span",{style:{color:DIFFS[dfc].color}},DIFFS[dfc].label)," difficulty")),
-    h("div",{style:{padding:"4px 16px 0"}},h("button",{style:Object.assign({},BT("o"),{background:calProgress.pct<100?C.or+"22":"transparent",borderColor:calProgress.pct<100?C.or:C.bd}),onClick:startCal},calProgress.pct<100?"\uD83D\uDD27 Calibrate Clubs ("+calProgress.pct+"%)":"\uD83D\uDD27 Re-Calibrate Clubs"),calProgress.pct<100?h("div",{style:{textAlign:"center",fontSize:10,color:C.or,marginTop:4}},calProgress.done+"/"+calProgress.total+" clubs calibrated \u2014 do this first!"):null),
+    h("div",{style:{padding:"4px 16px 0"}},h("button",{style:Object.assign({},BT("o"),{background:calProgress.pct<100?C.or+"22":"transparent",borderColor:calProgress.pct<100?C.or:C.bd}),onClick:startCal},calProgress.pct<100?"\uD83D\uDD27 Calibrate ("+calProgress.pct+"%)":"\uD83D\uDD27 Re-Calibrate"),calProgress.pct<100?h("div",{style:{textAlign:"center",fontSize:10,color:C.or,marginTop:4}},calProgress.done+"/"+calProgress.total+" clubs \u2014 do this first!"):null),
     rnd?h("div",{style:{padding:"0 16px"}},h("button",{style:BT("o"),onClick:function(){sv("round")}},"Resume Round")):null,
-    h("div",{style:{padding:"4px 16px 0"}},h("button",{style:BT("o"),onClick:function(){sv("progress")}},"Progress"),h("button",{style:BT("o"),onClick:function(){sv("yardages")}},"My Club Yardages"),h("button",{style:BT("o"),onClick:function(){sv("dispersion")}},"Club Dispersion"),h("button",{style:BT("o"),onClick:function(){sv("history")}},"History ("+rH.length+")"),h("button",{style:BT("o"),onClick:function(){sv("settings")}},"\u2699 Settings")),
+    h("div",{style:{padding:"4px 16px 0"}},h("button",{style:BT("o"),onClick:function(){sv("progress")}},"Progress"),h("button",{style:BT("o"),onClick:function(){sv("yardages")}},"Club Yardages"),h("button",{style:BT("o"),onClick:function(){sv("dispersion")}},"Club Dispersion"),h("button",{style:BT("o"),onClick:function(){sv("history")}},"History ("+rH.length+")"),h("button",{style:BT("o"),onClick:function(){sv("settings")}},"\u2699 Settings")),
     h("div",{style:CD},h("div",{style:GR(3)},h("div",{style:{textAlign:"center",padding:5}},h("div",{style:{fontSize:24,fontWeight:700,color:C.go}},sL.length),h("div",{style:{fontSize:9,color:C.dm,letterSpacing:2,textTransform:"uppercase"}},"Shots")),h("div",{style:{textAlign:"center",padding:5}},h("div",{style:{fontSize:24,fontWeight:700,color:C.go}},rH.length),h("div",{style:{fontSize:9,color:C.dm,letterSpacing:2,textTransform:"uppercase"}},"Rounds")),h("div",{style:{textAlign:"center",padding:5}},h("div",{style:{fontSize:24,fontWeight:700,color:C.go}},sL.length>0?Math.round(sL.filter(function(x){return x.res==="hit"}).length/sL.length*100):0,"%"),h("div",{style:{fontSize:9,color:C.dm,letterSpacing:2,textTransform:"uppercase"}},"Accuracy"))))
   );
 
   /* ═══ SETTINGS ═══ */
   if(vw==="settings")return h("div",{style:{paddingBottom:32}},dlg,HBar("Settings",function(){sv("menu")},"\u2190 Menu"),
-    h("div",{style:Object.assign({},CD,{background:C.go+"08",borderColor:C.gd})},h("div",{style:{fontSize:13,fontWeight:700,color:C.go,marginBottom:4}},"Range Markers"),h("div",{style:{fontSize:11,color:C.dm,marginBottom:10}},"Select distance markers at your range."),h("div",{style:GR(4)},ALL_DIST.map(function(d){var on=eD.includes(d);return h("button",{key:d,onClick:function(){tD(d)},style:{padding:"10px 4px",borderRadius:8,border:on?"2px solid "+C.go:"1px solid "+C.bd,background:on?C.go+"22":C.cd,color:on?C.go:C.dm,fontSize:13,fontWeight:on?700:400,fontFamily:"inherit",cursor:"pointer",textAlign:"center"}},d+"y")})),h("div",{style:{marginTop:8,fontSize:10,color:C.dm}},eD.length+" selected")),
-    h("div",{style:Object.assign({},CD,{background:C.gn+"08",borderColor:C.gn})},h("div",{style:{fontSize:13,fontWeight:700,color:C.gb,marginBottom:4}},"My Bag"),h("div",{style:{fontSize:11,color:C.dm,marginBottom:10}},"Caddy uses every club at least once."),h("div",{style:GR(4)},ALL_CLUBS.map(function(c){var on=eC.includes(c);return h("button",{key:c,onClick:function(){tC(c)},style:{padding:"9px 4px",borderRadius:8,border:on?"2px solid "+C.gb:"1px solid "+C.bd,background:on?C.gn+"22":C.cd,color:on?C.gb:C.dm,fontSize:11,fontWeight:on?700:400,fontFamily:"inherit",cursor:"pointer",textAlign:"center"}},c)})),h("div",{style:{marginTop:8,fontSize:10,color:C.dm}},eC.length+" clubs")),
-    h("div",{style:Object.assign({},CD,{background:C.or+"08",borderColor:C.or})},
-      h("div",{style:{fontSize:13,fontWeight:700,color:C.or,marginBottom:4}},"Difficulty"),
-      h("div",{style:{fontSize:11,color:C.dm,marginBottom:10}},"How strict is your 'on target' call? Pick one and stick with it for consistent scores."),
-      h("div",{style:{display:"flex",flexDirection:"column",gap:6}},Object.entries(DIFFS).map(function(x){
-        var k=x[0],d=x[1],on=dfc===k;
-        return h("button",{key:k,onClick:function(){wDf(k)},style:{padding:"10px 14px",borderRadius:8,border:on?"2px solid "+d.color:"1px solid "+C.bd,background:on?d.color+"22":C.cd,color:on?d.color:C.dm,fontSize:13,fontFamily:"inherit",cursor:"pointer",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center"}},
-          h("div",null,h("strong",{style:{color:on?d.color:C.tx}},d.label),h("div",{style:{fontSize:10,marginTop:2}},d.desc)),
-          on?h("span",{style:{fontSize:14}},"\u2713"):null
-        );
-      }))
-    ),
-    h("div",{style:CD},h("div",{style:{fontSize:12,color:C.dm,lineHeight:1.6}},h("strong",{style:{color:C.tx}},"How it works: "),"The caddy picks a marker and the best club for it. Aim at that one sign. Did it land there? Yes = on target. Short, long, left, right = miss.")),
-    h("div",{style:{padding:"8px 16px 0"}},h("button",{style:BT("o"),onClick:exportCSV},"\uD83D\uDCCA Export CSV ("+sL.length+" shots)")),
+    h("div",{style:Object.assign({},CD,{background:C.go+"08",borderColor:C.gd})},h("div",{style:{fontSize:13,fontWeight:700,color:C.go,marginBottom:4}},"Range Markers"),h("div",{style:{fontSize:11,color:C.dm,marginBottom:10}},"Select markers at your range."),h("div",{style:GR(4)},ALL_DIST.map(function(d){var on=eD.includes(d);return h("button",{key:d,onClick:function(){tD(d)},style:{padding:"10px 4px",borderRadius:8,border:on?"2px solid "+C.go:"1px solid "+C.bd,background:on?C.go+"22":C.cd,color:on?C.go:C.dm,fontSize:13,fontWeight:on?700:400,fontFamily:"inherit",cursor:"pointer",textAlign:"center"}},d+"y")})),h("div",{style:{marginTop:8,fontSize:10,color:C.dm}},eD.length+" selected")),
+    h("div",{style:Object.assign({},CD,{background:C.gn+"08",borderColor:C.gn})},h("div",{style:{fontSize:13,fontWeight:700,color:C.gb,marginBottom:4}},"My Bag"),h("div",{style:GR(4)},ALL_CLUBS.map(function(c){var on=eC.includes(c);return h("button",{key:c,onClick:function(){tC(c)},style:{padding:"9px 4px",borderRadius:8,border:on?"2px solid "+C.gb:"1px solid "+C.bd,background:on?C.gn+"22":C.cd,color:on?C.gb:C.dm,fontSize:11,fontWeight:on?700:400,fontFamily:"inherit",cursor:"pointer",textAlign:"center"}},c)})),h("div",{style:{marginTop:8,fontSize:10,color:C.dm}},eC.length+" clubs")),
+    h("div",{style:Object.assign({},CD,{background:C.or+"08",borderColor:C.or})},h("div",{style:{fontSize:13,fontWeight:700,color:C.or,marginBottom:4}},"Difficulty"),h("div",{style:{fontSize:11,color:C.dm,marginBottom:10}},"How strict is 'on target'? Pick one, stick with it."),h("div",{style:{display:"flex",flexDirection:"column",gap:6}},Object.entries(DIFFS).map(function(x){var k=x[0],d=x[1],on=dfc===k;return h("button",{key:k,onClick:function(){wDf(k)},style:{padding:"10px 14px",borderRadius:8,border:on?"2px solid "+d.color:"1px solid "+C.bd,background:on?d.color+"22":C.cd,color:on?d.color:C.dm,fontSize:13,fontFamily:"inherit",cursor:"pointer",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center"}},h("div",null,h("strong",{style:{color:on?d.color:C.tx}},d.label),h("div",{style:{fontSize:10,marginTop:2}},d.desc)),on?h("span",{style:{fontSize:14}},"\u2713"):null);}))),
+    h("div",{style:{padding:"8px 16px 0"}},h("button",{style:BT("o"),onClick:exportCSV},"\uD83D\uDCCA Export CSV ("+sL.length+")")),
     h("div",{style:{padding:"4px 16px 0"}},h("button",{style:BT("o"),onClick:triggerImport},"\uD83D\uDCC2 Import CSV")),
     h("div",{style:{padding:"8px 16px 0"}},h("button",{style:BT("d"),onClick:resetAll},"Reset All Data"))
   );
 
   /* ═══ YARDAGES ═══ */
-  if(vw==="yardages")return h("div",{style:{paddingBottom:32}},dlg,HBar("My Yardages",function(){sv("menu")},"\u2190 Menu"),
+  if(vw==="yardages")return h("div",{style:{paddingBottom:32}},dlg,HBar("Club Yardages",function(){sv("menu")},"\u2190 Menu"),
     h("div",{style:Object.assign({},CD,{background:C.go+"08"})},h("div",{style:{fontSize:12,color:C.dm}},"After 3+ shots your real average replaces defaults.")),
-    eC.map(function(club){var cs=sL.filter(function(s){return s.club===club});var lr=cs.length>=3;var yds=cY[club]||DY[club]||0;var acc=cs.length?Math.round(cs.filter(function(s){return s.res==="hit"}).length/cs.length*100):null;
+    eC.slice().sort(clubSort).map(function(club){var cs=sL.filter(function(s){return s.club===club&&s.res!=="mishit"});var lr=cs.length>=3;var yds=cY[club]||DY[club]||0;var acc=cs.length?Math.round(cs.filter(function(s){return s.res==="hit"}).length/cs.length*100):null;
       return h("div",{key:club,style:Object.assign({},CD,{padding:"10px 14px"})},h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},h("div",null,h("div",{style:{fontSize:15,fontWeight:700}},club),acc!=null?h("div",{style:{fontSize:10,color:C.dm,marginTop:2}},cs.length+" shots \u00B7 "+acc+"% acc"):null),h("div",{style:{textAlign:"right"}},h("div",{style:{fontSize:20,fontWeight:700,color:lr?C.gb:C.dm}},yds+" yds"),h("div",{style:{fontSize:9,color:lr?C.gb:C.dm}},lr?"LEARNED":"DEFAULT"))));
     })
   );
 
   /* ═══ CALIBRATE ═══ */
   if(vw==="calibrate"){
-    var club=calClub();
-    var est=cY[club]||DY[club]||150;
-    var calMk=pickMk(est,eD);
-    var clubShots=sL.filter(function(s){return s.club===club}).length;
-    var thisSessionCt=calCts[club]||0;
-    var totalDone=Object.values(calCts).reduce(function(a,v){return a+v},0);
-
-    return h("div",{style:{paddingBottom:32}},dlg,
-      HBar("Calibrate",function(){sv("menu")},"\u2190 Done"),
-      h("div",{style:{padding:"8px 16px"}},
-        h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:10,color:C.dm,marginBottom:4}},
-          h("span",null,"Club "+(calIdx+1)+" of "+eC.length),
-          h("span",null,totalDone+" shots this session")
-        ),
-        h("div",{style:{background:C.bd,borderRadius:4,height:6,overflow:"hidden"}},
-          h("div",{style:{background:C.go,height:"100%",width:Math.round((calIdx/eC.length)*100)+"%",borderRadius:4,transition:"width 0.3s"}})
-        )
-      ),
+    var club=calClub();var est=cY[club]||DY[club]||150;var calMk=pickMk(est,eD);
+    var thisSessionCt=calCts[club]||0;var totalDone=Object.values(calCts).reduce(function(a,v){return a+v},0);
+    return h("div",{style:{paddingBottom:32}},dlg,HBar("Calibrate",function(){sv("menu")},"\u2190 Done"),
+      h("div",{style:{padding:"8px 16px"}},h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:10,color:C.dm,marginBottom:4}},h("span",null,"Club "+(calIdx+1)+"/"+eC.length),h("span",null,totalDone+" shots")),h("div",{style:{background:C.bd,borderRadius:4,height:6,overflow:"hidden"}},h("div",{style:{background:C.go,height:"100%",width:Math.round((calIdx/eC.length)*100)+"%",borderRadius:4}}))),
       h("div",{style:Object.assign({},CD,{textAlign:"center",background:C.go+"0d",borderColor:C.gd})},
-        h("div",{style:{fontSize:10,color:C.gd,letterSpacing:2,textTransform:"uppercase"}},"Calibrating \u2014 Full Swing"),
+        h("div",{style:{fontSize:10,color:C.gd,letterSpacing:2,textTransform:"uppercase"}},"Full Swing"),
         h("div",{style:{fontSize:36,fontWeight:700,color:C.tx,margin:"8px 0"}},club),
-        h("div",{style:{fontSize:16,color:C.go,marginTop:4}},"\u2192 "+calMk+" yd marker"),
-        h("div",{style:{fontSize:11,color:C.dm,marginTop:8}},"Shot "+(thisSessionCt+1)+" of "+CAL_SHOTS+" \u00B7 Est. "+est+" yds"),
-        h("div",{style:{fontSize:10,color:C.or,marginTop:6}},"Full swing, clean strikes only.")
+        h("div",{style:{fontSize:16,color:C.go}},"\u2192 "+calMk+" yd marker"),
+        h("div",{style:{fontSize:11,color:C.dm,marginTop:6}},"Shot "+(thisSessionCt+1)+"/"+CAL_SHOTS+" \u00B7 Est. "+est+" yds"),
+        h("div",{style:{fontSize:10,color:C.or,marginTop:4}},"Clean strikes only \u2014 skip mishits")
       ),
       h("div",{style:{padding:"4px 16px"}},
-        h("div",{style:{fontSize:10,color:C.dm,letterSpacing:2,textTransform:"uppercase",marginBottom:6,textAlign:"center"}},"How far did it go?"),
         h("div",{style:{display:"flex",flexDirection:"column",gap:8,maxWidth:300,margin:"0 auto"}},
-          h("button",{onClick:function(){logCal("miss_long")},style:Object.assign({},SM(),{padding:"14px 12px",borderColor:C.gd,display:"flex",alignItems:"center",justifyContent:"center",gap:8})},
-            h("span",{style:{fontSize:18}},"\u2B06\uFE0F"),
-            h("span",{style:{fontSize:14}},"Past the "+calMk+" marker")
-          ),
-          h("button",{onClick:function(){logCal("hit")},style:Object.assign({},SM(true),{padding:"16px 12px",background:C.gn+"33",borderColor:C.gb,borderWidth:2,display:"flex",alignItems:"center",justifyContent:"center",gap:8})},
-            h("span",{style:{fontSize:22}},"\uD83C\uDFAF"),
-            h("span",{style:{fontSize:14,color:C.gb,fontWeight:700}},"At the "+calMk+" marker")
-          ),
-          h("button",{onClick:function(){logCal("miss_short")},style:Object.assign({},SM(),{padding:"14px 12px",borderColor:C.gd,display:"flex",alignItems:"center",justifyContent:"center",gap:8})},
-            h("span",{style:{fontSize:18}},"\u2B07\uFE0F"),
-            h("span",{style:{fontSize:14}},"Short of the "+calMk+" marker")
-          )
+          h("button",{onClick:function(){logCal("miss_long")},style:Object.assign({},SM(),{padding:"14px 12px",display:"flex",alignItems:"center",justifyContent:"center",gap:8})},h("span",{style:{fontSize:18}},"\u2B06\uFE0F"),h("span",{style:{fontSize:14}},"Past "+calMk)),
+          h("button",{onClick:function(){logCal("hit")},style:Object.assign({},SM(true),{padding:"16px 12px",background:C.gn+"33",borderColor:C.gb,borderWidth:2,display:"flex",alignItems:"center",justifyContent:"center",gap:8})},h("span",{style:{fontSize:22}},"\uD83C\uDFAF"),h("span",{style:{fontSize:14,color:C.gb,fontWeight:700}},"At "+calMk)),
+          h("button",{onClick:function(){logCal("miss_short")},style:Object.assign({},SM(),{padding:"14px 12px",display:"flex",alignItems:"center",justifyContent:"center",gap:8})},h("span",{style:{fontSize:18}},"\u2B07\uFE0F"),h("span",{style:{fontSize:14}},"Short of "+calMk))
         ),
-        h("div",{style:{textAlign:"center",marginTop:12}},
-          h("button",{onClick:skipCalShot,style:{background:"none",border:"none",color:C.dm,fontSize:12,cursor:"pointer",fontFamily:"inherit",textDecoration:"underline"}},"Mishit \u2014 don\u2019t log, re-hit")
-        ),
+        h("div",{style:{textAlign:"center",marginTop:10}},h("button",{onClick:skipCalShot,style:{background:"none",border:"none",color:C.dm,fontSize:12,cursor:"pointer",fontFamily:"inherit",textDecoration:"underline"}},"Mishit \u2014 re-hit")),
         h("button",{style:Object.assign({},BT("o"),{fontSize:11}),onClick:skipCalClub},"Skip "+club+" \u2192"),
         h("button",{style:Object.assign({},BT("o"),{fontSize:11}),onClick:function(){sv("menu")}},"Finish Early")
       )
     );
   }
-  if(vw==="cal_done"){
-    return h("div",{style:{paddingBottom:32}},dlg,
-      HBar("Calibration",function(){sv("menu")},"\u2190 Menu"),
-      h("div",{style:Object.assign({},CD,{textAlign:"center"})},
-        h("div",{style:{fontSize:36,marginBottom:8}},"\u2705"),
-        h("div",{style:{fontSize:18,fontWeight:700,color:C.gb}},"Calibration Complete!"),
-        h("div",{style:{fontSize:13,color:C.dm,marginTop:8,lineHeight:1.5}},"All "+eC.length+" clubs have been calibrated. The caddy will now make much better club selections."),
-        h("div",{style:{fontSize:12,color:C.go,marginTop:12,fontWeight:700}},"Your learned yardages:")
-      ),
-      eC.map(function(club){
-        var yds=cY[club]||DY[club]||0;
-        var cs=sL.filter(function(s){return s.club===club});
-        var lr=cs.length>=3;
-        return h("div",{key:club,style:Object.assign({},CD,{padding:"8px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"})},
-          h("strong",{style:{fontSize:14}},club),
-          h("span",{style:{fontSize:16,fontWeight:700,color:lr?C.gb:C.dm}},yds+" yds ",h("span",{style:{fontSize:9}},lr?"LEARNED":"DEFAULT"))
-        );
-      }),
-      h("div",{style:{padding:"8px 16px"}},
-        h("button",{style:BT("p"),onClick:startR},"Play a Round"),
-        h("button",{style:BT("o"),onClick:function(){sv("menu")}},"Back to Menu")
-      )
-    );
-  }
+
+  /* ═══ CAL DONE ═══ */
+  if(vw==="cal_done")return h("div",{style:{paddingBottom:32}},dlg,HBar("Calibration",function(){sv("menu")},"\u2190 Menu"),
+    h("div",{style:Object.assign({},CD,{textAlign:"center"})},h("div",{style:{fontSize:36,marginBottom:8}},"\u2705"),h("div",{style:{fontSize:18,fontWeight:700,color:C.gb}},"Done!"),h("div",{style:{fontSize:13,color:C.dm,marginTop:8}},eC.length+" clubs calibrated.")),
+    eC.slice().sort(clubSort).map(function(club){var yds=cY[club]||DY[club]||0;var lr=sL.filter(function(s){return s.club===club}).length>=3;return h("div",{key:club,style:Object.assign({},CD,{padding:"8px 14px",display:"flex",justifyContent:"space-between"})},h("strong",null,club),h("span",{style:{color:lr?C.gb:C.dm}},yds+" yds"));}),
+    h("div",{style:{padding:"8px 16px"}},h("button",{style:BT("p"),onClick:startR},"Play a Round"),h("button",{style:BT("o"),onClick:function(){sv("menu")}},"Menu"))
+  );
 
   /* ═══ ROUND ═══ */
   if(vw==="round"&&rnd){
-    var ho=rnd[cH];var used=getUsed();
+    var ho=rnd[cH];
     var marker=ho.done?0:pickMk(ho.rem,eD);
-    var aC=ho.done?null:pickC(marker,eC,cY,ho.shots.length===0,used,ho.par);
+    var aC=ho.done?null:pickC(marker,eC,cY,ho.shots.length===0,ho.par);
     var sc=scH(ho);var played=rnd.filter(function(x){return x.shots.length>0});
     var tS=played.reduce(function(a,x){return a+scH(x)},0);
     var tP=played.reduce(function(a,x){return a+x.par},0);
     var minD=Math.min.apply(null,eD);var isHO=ho.rem<=minD;
-    var isHazShot=!ho.done&&(ho.hazL||ho.hazR)&&ho.hazShot===ho.shots.length;
 
     return h("div",{style:{paddingBottom:32}},dlg,
       h("div",{style:{background:"linear-gradient(180deg,#1a2e1a 0%,"+C.bg+" 100%)",padding:"14px 16px 10px",borderBottom:"1px solid "+C.bd}},h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},h("button",{style:{background:"none",border:"none",color:C.go,fontSize:13,cursor:"pointer",padding:"8px 14px",fontFamily:"inherit"},onClick:function(){sv("menu")}},"\u2190 Menu"),h("h1",{style:{fontSize:14,fontWeight:700,color:C.go,letterSpacing:2,margin:0,textTransform:"uppercase"}},"Hole "+ho.hn),h("div",{style:{padding:"0 8px"}},h("span",{style:BG(pc(ho.par))},"Par "+ho.par)))),
-      // Hole dots
+      // Hole dots + par strip
       h("div",{style:{display:"flex",justifyContent:"center",gap:4,padding:"8px 0 2px"}},rnd.map(function(x,i){return h("div",{key:i,onClick:function(){sCH(i);wCur(rnd,i)},style:{width:25,height:25,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,cursor:"pointer",background:i===cH?C.go:x.done?C.gn+"33":x.shots.length?C.ca:"transparent",color:i===cH?"#1a1a0a":x.done?C.gb:x.shots.length?C.go:C.dm,border:"1px solid "+(i===cH?C.go:x.done?C.gn:C.bd)}},x.done?"\u2713":i+1)})),
-      h("div",{style:{display:"flex",justifyContent:"center",gap:3,padding:"2px 0 2px"}},rnd.map(function(x,i){return h("div",{key:i,style:{fontSize:9,color:i===cH?pc(x.par):C.dm,fontWeight:i===cH?700:400,width:25,textAlign:"center"}},x.par)})),
-      // Hazard indicators
-      h("div",{style:{display:"flex",justifyContent:"center",gap:3,padding:"0 0 6px"}},rnd.map(function(x,i){
-        var hasH=x.hazL||x.hazR;
-        if(!hasH)return h("div",{key:i,style:{width:25,textAlign:"center",fontSize:8,color:C.bg}},"\u00B7");
-        var lc=x.hazL?(x.hazL==="water"?"\uD83D\uDCA7":"\u26F3"):"";
-        var rc=x.hazR?(x.hazR==="water"?"\uD83D\uDCA7":"\u26F3"):"";
-        return h("div",{key:i,style:{width:25,textAlign:"center",fontSize:7,color:C.rd}},lc+rc);
-      })),
-      h(HV,{hole:ho,target:marker,hazActive:isHazShot}),
-      // Hazard warning
-      isHazShot?h("div",{style:{display:"flex",justifyContent:"center",gap:6,padding:"6px 0",flexWrap:"wrap"}},
-        ho.hazL?h("span",{style:Object.assign({},BG(ho.hazL==="water"?C.rd:"#c4a24a"),{fontSize:10,padding:"4px 10px"})},ho.hazL==="water"?"\uD83D\uDCA7 WATER LEFT +2":"\u26F3 BUNKER LEFT +1"):null,
-        ho.hazR?h("span",{style:Object.assign({},BG(ho.hazR==="water"?C.rd:"#c4a24a"),{fontSize:10,padding:"4px 10px"})},ho.hazR==="water"?"\uD83D\uDCA7 WATER RIGHT +2":"\u26F3 BUNKER RIGHT +1"):null
-      ):null,
-      // Caddy assignment
+      h("div",{style:{display:"flex",justifyContent:"center",gap:3,padding:"2px 0 8px"}},rnd.map(function(x,i){return h("div",{key:i,style:{fontSize:9,color:i===cH?pc(x.par):C.dm,fontWeight:i===cH?700:400,width:25,textAlign:"center"}},x.par)})),
+      // Caddy card
       !ho.done?h("div",{style:Object.assign({},CD,{background:C.go+"0d",borderColor:C.gd,textAlign:"center"})},
-        h("div",{style:{fontSize:10,color:C.gd,letterSpacing:2,textTransform:"uppercase"}},ho.rem===ho.dist?"Tee Shot":isHO?"Hole-Out Shot":"Approach"),
-        h("div",{style:{fontSize:13,color:C.dm,marginTop:4}},ho.rem+" yds remaining \u00B7 "+ho.dist+" yd hole"),
-        h("div",{style:{margin:"12px 0 6px",padding:"12px 0",borderTop:"1px solid "+C.bd,borderBottom:"1px solid "+C.bd}},
-          h("div",{style:{fontSize:10,color:C.go,letterSpacing:2,textTransform:"uppercase",marginBottom:4}},"Caddy Says"),
+        h("div",{style:{fontSize:10,color:C.gd,letterSpacing:2,textTransform:"uppercase"}},ho.rem===ho.dist?"Tee Shot":isHO?"Hole-Out":"Approach"),
+        h("div",{style:{fontSize:13,color:C.dm,marginTop:4}},ho.rem+" yds left \u00B7 "+ho.dist+" yd hole"),
+        h("div",{style:{margin:"10px 0 6px",padding:"10px 0",borderTop:"1px solid "+C.bd,borderBottom:"1px solid "+C.bd}},
           h("div",{style:{fontSize:28,fontWeight:700,color:C.tx}},aC),
-          h("div",{style:{fontSize:16,color:C.go,marginTop:4}},"\u2192 "+marker+" yd marker"),
-          h("div",{style:{fontSize:11,color:C.dm,marginTop:4}},"Est. "+(cY[aC]||"?")+" yds \u00B7 Leaves "+Math.max(ho.rem-marker,0)+" yds")
+          h("div",{style:{fontSize:16,color:C.go,marginTop:2}},"\u2192 "+marker+" yd marker"),
+          h("div",{style:{fontSize:11,color:C.dm,marginTop:4}},"Est. "+(cY[aC]||"?")+" yds")
         ),
-        h("div",{style:{fontSize:10,color:DIFFS[dfc].color,marginTop:2,padding:"4px 0",borderRadius:4}},"\u25C9 "+DIFFS[dfc].label+": "+DIFFS[dfc].desc),
+        h("div",{style:{fontSize:10,color:DIFFS[dfc].color,padding:"2px 0"}},"\u25C9 "+DIFFS[dfc].label+": "+DIFFS[dfc].desc),
         h(MT,{shots:sL,club:aC,dist:marker})
       ):
-      // Holed out
       h("div",{style:Object.assign({},CD,{textAlign:"center",background:C.gn+"11",borderColor:C.gn})},
         h("div",{style:{fontSize:20}},"\u26F3"),h("div",{style:{fontSize:16,fontWeight:700,color:C.gb}},"Holed Out!"),
         h("div",{style:{fontSize:14,marginTop:3}},sc+(sc===1?" stroke":" strokes"),h("span",{style:{color:sdc(sc-ho.par),fontWeight:700,marginLeft:6}},"("+(sc-ho.par>=0?"+":"")+(sc-ho.par)+")")),
-        sc-ho.par<=-2?h("div",{style:{fontSize:12,color:C.gb,marginTop:2}},"\uD83E\uDD85 Eagle!"):null,
-        sc-ho.par===-1?h("div",{style:{fontSize:12,color:C.gb,marginTop:2}},"\uD83D\uDC26 Birdie!"):null,
-        sc-ho.par===0?h("div",{style:{fontSize:12,color:C.gn,marginTop:2}},"Par"):null,
-        sc-ho.par===1?h("div",{style:{fontSize:12,color:C.go,marginTop:2}},"Bogey"):null,
-        sc-ho.par===2?h("div",{style:{fontSize:12,color:C.or,marginTop:2}},"Double Bogey"):null,
-        sc-ho.par>=3?h("div",{style:{fontSize:12,color:C.rd,marginTop:2}},"+"+String(sc-ho.par)):null
+        sc-ho.par<=-1?h("div",{style:{fontSize:12,color:C.gb,marginTop:2}},sc-ho.par<=-2?"\uD83E\uDD85 Eagle!":"\uD83D\uDC26 Birdie!"):sc-ho.par===0?h("div",{style:{fontSize:12,color:C.gn,marginTop:2}},"Par"):h("div",{style:{fontSize:12,color:sc-ho.par<=2?C.go:C.rd,marginTop:2}},sc-ho.par===1?"Bogey":sc-ho.par===2?"Double Bogey":"+"+sc-ho.par)
       ),
-      tP>0?h("div",{style:{textAlign:"center",padding:"1px 0",fontSize:11,color:C.dm}},"Round: "+tS+" ("+(tS-tP>=0?"+":"")+(tS-tP)+") thru "+played.length+" \u00B7 Par "+RPAR):null,
-      // Action area
+      // Round score
+      tP>0?h("div",{style:{textAlign:"center",padding:"2px 0",fontSize:11,color:C.dm}},"Round: "+tS+" ("+(tS-tP>=0?"+":"")+(tS-tP)+") thru "+played.length+" \u00B7 Par "+RPAR):null,
+      // Action buttons
       h("div",{style:{padding:"4px 16px"}},
         !ho.done?h("div",null,
-          h("div",{style:{fontSize:10,color:C.dm,letterSpacing:2,textTransform:"uppercase",marginBottom:8,textAlign:"center"}},"How'd it go?"),
-          h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gridTemplateRows:"auto auto auto",gap:6,maxWidth:300,margin:"0 auto"}},
-            h("div"),h("button",{onClick:function(){logS("miss_long")},style:Object.assign({},SM(),{padding:"10px 6px",borderColor:C.gd})},h("div",{style:{fontSize:16}},"\u2B06\uFE0F"),h("div",{style:{fontSize:9,marginTop:1,color:C.go}},"Long +1")),h("div"),
-            h("button",{onClick:function(){logS("miss_left")},style:Object.assign({},SM(),{padding:"10px 6px",borderColor:isHazShot&&ho.hazL?C.rd:C.gd,background:isHazShot&&ho.hazL?C.rd+"22":"transparent"})},h("div",{style:{fontSize:16}},"\u2B05\uFE0F"),h("div",{style:{fontSize:9,marginTop:1,color:isHazShot&&ho.hazL?C.rd:C.go}},isHazShot&&ho.hazL?(ho.hazL==="water"?"LEFT +3":"LEFT +2"):"Left +1")),
-            h("button",{onClick:function(){logS("hit")},style:Object.assign({},SM(true),{padding:"16px 6px",background:C.gn+"33",borderColor:C.gb,borderWidth:2})},h("div",{style:{fontSize:24}},"\uD83C\uDFAF"),h("div",{style:{fontSize:10,marginTop:2,color:C.gb,fontWeight:700}},"Target")),
-            h("button",{onClick:function(){logS("miss_right")},style:Object.assign({},SM(),{padding:"10px 6px",borderColor:isHazShot&&ho.hazR?C.rd:C.gd,background:isHazShot&&ho.hazR?C.rd+"22":"transparent"})},h("div",{style:{fontSize:16}},"\u27A1\uFE0F"),h("div",{style:{fontSize:9,marginTop:1,color:isHazShot&&ho.hazR?C.rd:C.go}},isHazShot&&ho.hazR?(ho.hazR==="water"?"RIGHT +3":"RIGHT +2"):"Right +1")),
-            h("div"),h("button",{onClick:function(){logS("miss_short")},style:Object.assign({},SM(),{padding:"10px 6px",borderColor:C.gd})},h("div",{style:{fontSize:16}},"\u2B07\uFE0F"),h("div",{style:{fontSize:9,marginTop:1,color:C.go}},"Short +1")),h("div")
-          ),
-          ho.shots.length>0?h("button",{style:BT("o"),onClick:nextH},cH<8?"Skip Hole \u2192":"Finish Round"):null,
+          h("div",{style:{fontSize:10,color:C.dm,letterSpacing:2,textTransform:"uppercase",marginBottom:6,textAlign:"center"}},"How'd it go?"),
+          h(DPad,{onResult:logS}),
+          h("button",{style:BT("o"),onClick:skipHole},cH<8?"Skip Hole \u2192":"Finish Round"),
           h("button",{style:Object.assign({},BT("d"),{fontSize:11,padding:"10px 14px"}),onClick:abandon},"Abandon Round")
         ):h("div",null,h("button",{style:BT("p"),onClick:nextH},cH<8?"Next Hole \u2192":"Finish Round"),h("button",{style:Object.assign({},BT("d"),{fontSize:11,padding:"10px 14px"}),onClick:abandon},"Abandon Round"))
       ),
-      // Shot log — below action buttons so they don't shift
-      ho.shots.length>0?h("div",{style:CD},h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}},h("div",{style:{fontSize:10,color:C.dm,letterSpacing:2,textTransform:"uppercase"}},"Shots"),h("button",{onClick:undo,style:{background:"none",border:"1px solid "+C.bd,borderRadius:6,padding:"3px 10px",fontSize:10,color:C.go,cursor:"pointer",fontFamily:"inherit"}},"\u21A9 Undo")),ho.shots.map(function(sh,i){var r=RES.find(function(x){return x.id===sh.res});return h("div",{key:i,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0",borderBottom:i<ho.shots.length-1?"1px solid "+C.bd:"none",fontSize:12}},h("span",null,r?r.em:""," ",h("strong",null,sh.club),h("span",{style:{color:C.dm,fontSize:10,marginLeft:3}},"\u2192"+sh.td+"y")),h("span",{style:{fontSize:11}},h("span",{style:{color:sh.res==="hit"?C.gb:sh.pen>=2?C.rd:C.go}},r?r.label:""),sh.pen>0?h("span",{style:{color:C.rd}}," +"+sh.pen):null,h("span",{style:{color:C.dm,marginLeft:4}},"("+sh.remA+"y)")))})):null
+      // Shot log
+      ho.shots.length>0?h("div",{style:CD},h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}},h("div",{style:{fontSize:10,color:C.dm,letterSpacing:2,textTransform:"uppercase"}},"Shots"),h("button",{onClick:undo,style:{background:"none",border:"1px solid "+C.bd,borderRadius:6,padding:"3px 10px",fontSize:10,color:C.go,cursor:"pointer",fontFamily:"inherit"}},"\u21A9 Undo")),ho.shots.map(function(sh,i){var r=resInfo(sh.res);return h("div",{key:i,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0",borderBottom:i<ho.shots.length-1?"1px solid "+C.bd:"none",fontSize:12}},h("span",null,r.em," ",h("strong",null,sh.club),h("span",{style:{color:C.dm,fontSize:10,marginLeft:3}},"\u2192"+sh.td+"y")),h("span",{style:{fontSize:11}},h("span",{style:{color:sh.res==="hit"?C.gb:sh.res==="mishit"?C.rd:C.go}},r.lb),sh.pen>0?h("span",{style:{color:C.rd}}," +"+sh.pen):null,h("span",{style:{color:C.dm,marginLeft:4}},"("+sh.remA+"y)")));})):null
     );
   }
 
   /* ═══ SCORECARD ═══ */
   if(vw==="scorecard"){
     var r=rnd||(rH.length?rH[rH.length-1].holes:null);if(!r){sv("menu");return null;}
-    var ts=scR(r),tp=parRd(r),diff=ts-tp;
-    var hc=r.reduce(function(a,x){return a+x.shots.filter(function(s){return s.res==="hit"}).length},0);
-    var tsh=r.reduce(function(a,x){return a+x.shots.length},0);
+    var ts=scR(r),tp=parRd(r),diff=ts-tp;var hc=r.reduce(function(a,x){return a+x.shots.filter(function(s){return s.res==="hit"}).length},0);var tsh=r.reduce(function(a,x){return a+x.shots.length},0);
     return h("div",{style:{paddingBottom:32}},dlg,
       h("div",{style:{background:"linear-gradient(180deg,#1a2e1a 0%,"+C.bg+" 100%)",padding:"14px 16px 10px",borderBottom:"1px solid "+C.bd,textAlign:"center"}},h("h1",{style:{fontSize:18,fontWeight:700,color:C.go,letterSpacing:2,textTransform:"uppercase"}},"Scorecard"),h("p",{style:{fontSize:10,color:C.dm,letterSpacing:3,marginTop:3,textTransform:"uppercase"}},"Par "+tp)),
       h("div",{style:Object.assign({},CD,{textAlign:"center"})},h("div",{style:{fontSize:42,fontWeight:700,color:sdc(diff)}},(diff>=0?"+":"")+diff),h("div",{style:{fontSize:13,color:C.dm}},ts+" strokes \u00B7 Par "+tp),h("div",{style:{fontSize:12,color:C.dm,marginTop:4}},tsh>0?Math.round(hc/tsh*100):0,"% on-target"),h("div",{style:{fontSize:10,color:DIFFS[dfc].color,marginTop:4}},DIFFS[dfc].label+" difficulty")),
       h("div",{style:CD},
         h("div",{style:{display:"grid",gridTemplateColumns:"30px 46px 34px 38px 38px 1fr",gap:2,paddingBottom:6,borderBottom:"1px solid "+C.bd,fontSize:9,color:C.dm,letterSpacing:1,textTransform:"uppercase"}},h("span",null,"#"),h("span",null,"Dist"),h("span",null,"Par"),h("span",null,"Shts"),h("span",null,"Scr"),h("span",null,"+/-")),
-        r.map(function(x,i){var s2=scH(x),d2=s2-x.par;return h("div",{key:i,style:{display:"grid",gridTemplateColumns:"30px 46px 34px 38px 38px 1fr",gap:2,padding:"6px 0",borderBottom:i<8?"1px solid "+C.bd:"none",fontSize:13}},h("span",{style:{fontWeight:700}},i+1),h("span",{style:{color:C.dm}},x.dist+"y"),h("span",{style:{color:pc(x.par)}},x.par),h("span",{style:{color:C.dm}},x.shots.length),h("span",{style:{fontWeight:700}},s2),h("span",{style:{color:sdc(d2),fontWeight:700}},(d2>=0?"+":"")+d2))}),
+        r.map(function(x,i){if(x.skipped)return h("div",{key:i,style:{display:"grid",gridTemplateColumns:"30px 46px 34px 38px 38px 1fr",gap:2,padding:"6px 0",borderBottom:i<8?"1px solid "+C.bd:"none",fontSize:13,opacity:.5}},h("span",{style:{fontWeight:700}},i+1),h("span",{style:{color:C.dm}},x.dist+"y"),h("span",{style:{color:C.dm}},x.par),h("span",{style:{color:C.dm}},"-"),h("span",null,"-"),h("span",{style:{color:C.dm}},"SKIP"));var s2=scH(x),d2=s2-x.par;return h("div",{key:i,style:{display:"grid",gridTemplateColumns:"30px 46px 34px 38px 38px 1fr",gap:2,padding:"6px 0",borderBottom:i<8?"1px solid "+C.bd:"none",fontSize:13}},h("span",{style:{fontWeight:700}},i+1),h("span",{style:{color:C.dm}},x.dist+"y"),h("span",{style:{color:pc(x.par)}},x.par),h("span",{style:{color:C.dm}},x.shots.length),h("span",{style:{fontWeight:700}},s2),h("span",{style:{color:sdc(d2),fontWeight:700}},(d2>=0?"+":"")+d2))}),
         h("div",{style:{display:"grid",gridTemplateColumns:"30px 46px 34px 38px 38px 1fr",gap:2,padding:"8px 0 0",borderTop:"2px solid "+C.bd,fontSize:13,fontWeight:700}},h("span"),h("span"),h("span",{style:{color:C.go}},tp),h("span",{style:{color:C.dm}},tsh),h("span",null,ts),h("span",{style:{color:sdc(diff)}},(diff>=0?"+":"")+diff))
       ),
       h("div",{style:{padding:"4px 16px"}},h("button",{style:BT("p"),onClick:function(){sRnd(null);sv("menu")}},"Back to Menu"))
@@ -588,67 +320,91 @@ function App(){
   /* ═══ PROGRESS ═══ */
   if(vw==="progress")return h("div",{style:{paddingBottom:32}},dlg,HBar("Progress",function(){sv("menu")},"\u2190 Menu"),
     h("div",{style:CD},h("div",{style:{fontSize:12,fontWeight:700,color:C.go,marginBottom:8}},"Score Over Time"),rH.length<2?h("div",{style:{textAlign:"center",padding:20,color:C.dm,fontSize:13}},"Complete 2+ rounds"):h(LineChart,{data:rH.map(function(r,i){return{v:scR(r.holes),l:"R"+(i+1)}}),refY:RPAR})),
-    h("div",{style:CD},h("div",{style:{fontSize:12,fontWeight:700,color:C.go,marginBottom:8}},"Penalty Rate by Distance"),sL.length<10?h("div",{style:{textAlign:"center",padding:16,color:C.dm,fontSize:13}},"Need 10+ shots"):h(BarChartH,{data:[{k:"long",mn:200,mx:999},{k:"mid",mn:100,mx:199},{k:"short",mn:0,mx:99}].map(function(b){var ss=sL.filter(function(s){return s.td>=b.mn&&s.td<=b.mx});return{l:b.k.charAt(0).toUpperCase()+b.k.slice(1)+" ("+ss.length+")",v:ss.length?ss.reduce(function(a,s){return a+s.pen},0)/ss.length:0}}).filter(function(d){return d.l})})),
+    h("div",{style:CD},h("div",{style:{fontSize:12,fontWeight:700,color:C.go,marginBottom:8}},"Penalty Rate by Distance"),sL.length<10?h("div",{style:{textAlign:"center",padding:16,color:C.dm,fontSize:13}},"Need 10+ shots"):h(BarChartH,{data:[{k:"long",mn:200,mx:999},{k:"mid",mn:100,mx:199},{k:"short",mn:0,mx:99}].map(function(b){var ss=sL.filter(function(s){return s.td>=b.mn&&s.td<=b.mx&&s.res!=="mishit"});return{l:b.k.charAt(0).toUpperCase()+b.k.slice(1)+" ("+ss.length+")",v:ss.length?ss.reduce(function(a,s){return a+s.pen},0)/ss.length:0}}).filter(function(d){return d.l})})),
     rH.length>0?h("div",{style:CD},h("div",{style:{fontSize:12,fontWeight:700,color:C.go,marginBottom:8}},"Round Stats"),(function(){var scores=rH.map(function(r){return scR(r.holes)});var best=Math.min.apply(null,scores),worst=Math.max.apply(null,scores),avg=Math.round(scores.reduce(function(a,x){return a+x},0)/scores.length*10)/10;var r5=scores.slice(-5),r5a=Math.round(r5.reduce(function(a,x){return a+x},0)/r5.length*10)/10;return h("div",{style:GR(2)},h("div",{style:{textAlign:"center",padding:5}},h("div",{style:{fontSize:24,fontWeight:700,color:C.go}},best),h("div",{style:{fontSize:9,color:C.dm,textTransform:"uppercase",letterSpacing:2}},"Best ("+(best-RPAR>=0?"+":"")+(best-RPAR)+")")),h("div",{style:{textAlign:"center",padding:5}},h("div",{style:{fontSize:24,fontWeight:700,color:C.go}},worst),h("div",{style:{fontSize:9,color:C.dm,textTransform:"uppercase",letterSpacing:2}},"Worst (+"+(worst-RPAR)+")")),h("div",{style:{textAlign:"center",padding:5}},h("div",{style:{fontSize:24,fontWeight:700,color:C.go}},avg),h("div",{style:{fontSize:9,color:C.dm,textTransform:"uppercase",letterSpacing:2}},"Average")),h("div",{style:{textAlign:"center",padding:5}},h("div",{style:{fontSize:24,fontWeight:700,color:C.go}},r5a),h("div",{style:{fontSize:9,color:C.dm,textTransform:"uppercase",letterSpacing:2}},"Last "+r5.length)));})()
     ):null
   );
 
   /* ═══ DISPERSION ═══ */
   if(vw==="dispersion"){
-    var clubsUsed=eC.filter(function(c){return sL.some(function(s){return s.club===c})});
-    var clubList=clubsUsed.length>0?clubsUsed:eC;
-    var clubShots=dSh;
-    var hitC=clubShots.filter(function(x){return x.res==="hit"}).length;
-    var missL=clubShots.filter(function(x){return x.res==="miss_left"}).length;
-    var missR=clubShots.filter(function(x){return x.res==="miss_right"}).length;
-    var missS=clubShots.filter(function(x){return x.res==="miss_short"}).length;
-    var missLo=clubShots.filter(function(x){return x.res==="miss_long"}).length;
-    var hazPen=clubShots.filter(function(x){return x.pen>=2}).length;
-    // Distances this club was used at
-    var distBreak={};
-    clubShots.forEach(function(s){
-      var d=s.td;if(!distBreak[d])distBreak[d]={h:0,t:0};distBreak[d].t++;if(s.res==="hit")distBreak[d].h++;
-    });
+    var clubsUsed=eC.filter(function(c){return sL.some(function(s){return s.club===c})}).sort(clubSort);
+    var clubList=clubsUsed.length>0?clubsUsed:eC.slice().sort(clubSort);
+    var hitC=dSh.filter(function(x){return x.res==="hit"}).length;
+    var validSh=dSh.filter(function(s){return s.res!=="mishit"});
+    var mishitC=dSh.filter(function(x){return x.res==="mishit"}).length;
+    var dirs={};dSh.forEach(function(s){if(s.res!=="hit"&&s.res!=="mishit")dirs[s.res]=(dirs[s.res]||0)+1;});
+    var distBreak={};validSh.forEach(function(s){if(!distBreak[s.td])distBreak[s.td]={h:0,t:0};distBreak[s.td].t++;if(s.res==="hit")distBreak[s.td].h++;});
+
+    // Per-round accuracy for this club
+    var roundAcc=rH.filter(function(r){return dfcF==="all"||r.dfc===dfcF}).map(function(r,i){
+      var clubShots=r.holes.reduce(function(a,ho){return a.concat(ho.shots.filter(function(s){return s.club===dD&&s.res!=="mishit"}));},[]);
+      if(!clubShots.length)return null;
+      var hts=clubShots.filter(function(s){return s.res==="hit"}).length;
+      return{v:Math.round(hts/clubShots.length*100),l:"R"+(i+1),n:clubShots.length};
+    }).filter(function(x){return x!==null});
+    var displayRounds=roundAcc.slice(-gameR);
+
+    // Filter helper for buttons
+    function dfcBtn(k,lb){return h("button",{key:k,onClick:function(){sDfcF(k)},style:{background:dfcF===k?(k==="all"?C.go:DIFFS[k].color)+"33":"transparent",border:"1px solid "+(dfcF===k?(k==="all"?C.go:DIFFS[k].color):C.bd),borderRadius:6,padding:"5px 10px",fontSize:10,color:dfcF===k?(k==="all"?C.go:DIFFS[k].color):C.dm,fontFamily:"inherit",cursor:"pointer",fontWeight:dfcF===k?700:400}},lb);}
+    function rangeBtn(n){return h("button",{key:n,onClick:function(){sGameR(n)},style:{background:gameR===n?C.go+"33":"transparent",border:"1px solid "+(gameR===n?C.go:C.bd),borderRadius:4,padding:"2px 8px",fontSize:9,color:gameR===n?C.go:C.dm,fontFamily:"inherit",cursor:"pointer"}},n);}
 
     return h("div",{style:{paddingBottom:32}},dlg,HBar("Club Dispersion",function(){sv("menu")},"\u2190 Menu"),
+      // Difficulty filter
       h("div",{style:{padding:"6px 16px"}},
-        h("div",{style:{fontSize:10,color:C.dm,letterSpacing:2,textTransform:"uppercase",marginBottom:6}},"Select Club"),
-        h("div",{style:{display:"flex",flexWrap:"wrap",gap:6}},clubList.map(function(c){
-          var ct=sL.filter(function(x){return x.club===c}).length;
-          return h("button",{key:c,onClick:function(){sDD(c)},style:Object.assign({},SM(dD===c),{padding:"8px 10px",minWidth:48})},
-            h("div",{style:{fontSize:12,fontWeight:700}},c),
-            h("div",{style:{fontSize:9,color:C.dm}},ct)
-          );
-        }))
+        h("div",{style:{fontSize:10,color:C.dm,letterSpacing:2,textTransform:"uppercase",marginBottom:6}},"Difficulty"),
+        h("div",{style:{display:"flex",gap:6}},dfcBtn("all","All"),dfcBtn("relaxed","Relaxed"),dfcBtn("strict","Strict"))
       ),
-      h("div",{style:CD},
-        clubShots.length===0?h("div",{style:{textAlign:"center",padding:16,color:C.dm,fontSize:13}},"No shots with "+dD+" yet"):
-        h("div",null,
-          h("div",{style:{textAlign:"center",fontSize:20,fontWeight:700,color:C.go}},dD),
-          h("div",{style:{textAlign:"center",fontSize:12,color:C.dm,marginTop:2}},clubShots.length+" shots \u00B7 "+(cY[dD]||DY[dD]||"?")+" yds avg"),
-          h("div",{style:{textAlign:"center",fontSize:16,fontWeight:700,color:C.gb,marginTop:8}},Math.round(hitC/clubShots.length*100)+"% accuracy"),
-          // Miss breakdown
-          h("div",{style:{display:"flex",justifyContent:"center",gap:12,marginTop:12,flexWrap:"wrap"}},
-            h("div",{style:{textAlign:"center"}},h("div",{style:{fontSize:20,fontWeight:700,color:C.gb}},hitC),h("div",{style:{fontSize:9,color:C.dm}},"\uD83C\uDFAF Target")),
-            missL>0?h("div",{style:{textAlign:"center"}},h("div",{style:{fontSize:20,fontWeight:700,color:C.go}},missL),h("div",{style:{fontSize:9,color:C.dm}},"\u2B05 Left")):null,
-            missR>0?h("div",{style:{textAlign:"center"}},h("div",{style:{fontSize:20,fontWeight:700,color:C.go}},missR),h("div",{style:{fontSize:9,color:C.dm}},"\u27A1 Right")):null,
-            missS>0?h("div",{style:{textAlign:"center"}},h("div",{style:{fontSize:20,fontWeight:700,color:C.go}},missS),h("div",{style:{fontSize:9,color:C.dm}},"\u2B07 Short")):null,
-            missLo>0?h("div",{style:{textAlign:"center"}},h("div",{style:{fontSize:20,fontWeight:700,color:C.go}},missLo),h("div",{style:{fontSize:9,color:C.dm}},"\u2B06 Long")):null,
-            hazPen>0?h("div",{style:{textAlign:"center"}},h("div",{style:{fontSize:20,fontWeight:700,color:C.rd}},hazPen),h("div",{style:{fontSize:9,color:C.dm}},"\uD83D\uDCA7 Hazard")):null
+      // Club selector
+      h("div",{style:{padding:"4px 16px"}},h("div",{style:{fontSize:10,color:C.dm,letterSpacing:2,textTransform:"uppercase",marginBottom:6}},"Club"),h("div",{style:{display:"flex",flexWrap:"wrap",gap:6}},clubList.map(function(c){var ct=sL.filter(function(x){return x.club===c&&(dfcF==="all"||x.dfc===dfcF)}).length;return h("button",{key:c,onClick:function(){sDD(c)},style:Object.assign({},SM(dD===c),{padding:"8px 10px",minWidth:48})},h("div",{style:{fontSize:12,fontWeight:700}},c),h("div",{style:{fontSize:9,color:C.dm}},ct));}))),
+      // Summary
+      h("div",{style:CD},dSh.length===0?h("div",{style:{textAlign:"center",padding:16,color:C.dm}},"No shots with "+dD+(dfcF!=="all"?" on "+dfcF:"")):h("div",null,
+        h("div",{style:{textAlign:"center",fontSize:20,fontWeight:700,color:C.go}},dD),
+        h("div",{style:{textAlign:"center",fontSize:12,color:C.dm,marginTop:2}},(cY[dD]||DY[dD]||"?")+" yds avg \u00B7 "+dSh.length+" shots"+(dfcF!=="all"?" ("+dfcF+")":"")),
+        validSh.length>0?h("div",{style:{textAlign:"center",fontSize:16,fontWeight:700,color:C.gb,marginTop:6}},Math.round(hitC/validSh.length*100)+"% accuracy"):null,
+        h("div",{style:{display:"flex",justifyContent:"center",gap:10,marginTop:10,flexWrap:"wrap"}},
+          hitC>0?h("div",{style:{textAlign:"center"}},h("div",{style:{fontSize:18,fontWeight:700,color:C.gb}},hitC),h("div",{style:{fontSize:9,color:C.dm}},"\uD83C\uDFAF Hit")):null,
+          Object.entries(dirs).sort(function(a,b){return b[1]-a[1]}).map(function(x){return h("div",{key:x[0],style:{textAlign:"center"}},h("div",{style:{fontSize:18,fontWeight:700,color:C.go}},x[1]),h("div",{style:{fontSize:9,color:C.dm}},x[0].replace("miss_","").replace("_","-")))}),
+          mishitC>0?h("div",{style:{textAlign:"center"}},h("div",{style:{fontSize:18,fontWeight:700,color:C.rd}},mishitC),h("div",{style:{fontSize:9,color:C.dm}},"Mishit")):null
+        ),
+        h(MT,{shots:dSh,club:dD})
+      )),
+      // By marker
+      Object.keys(distBreak).length>0?h("div",{style:CD},h("div",{style:{fontSize:10,color:C.dm,letterSpacing:2,textTransform:"uppercase",marginBottom:6}},dD+" by marker"),Object.entries(distBreak).sort(function(a,b){return+a[0]-+b[0]}).map(function(x){return h("div",{key:x[0],style:{padding:"5px 0",borderBottom:"1px solid "+C.bd,display:"flex",justifyContent:"space-between",fontSize:13}},h("span",null,x[0]+" yds"),h("span",null,h("span",{style:{color:C.gb}},Math.round(x[1].h/x[1].t*100)+"%"),h("span",{style:{color:C.dm,marginLeft:6}},x[1].h+"/"+x[1].t)));})):null,
+      // Accuracy per round trend
+      displayRounds.length>=2?h("div",{style:CD},
+        h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}},
+          h("div",{style:{fontSize:10,color:C.dm,letterSpacing:2,textTransform:"uppercase"}},dD+" accuracy per round"),
+          h("div",{style:{display:"flex",gap:4}},[5,10,25,100].map(function(n){return rangeBtn(n);}))
+        ),
+        h(LineChart,{data:displayRounds})
+      ):displayRounds.length===1?h("div",{style:CD},h("div",{style:{fontSize:12,color:C.dm,textAlign:"center"}},"Need 2+ rounds with "+dD+" for trend")):null,
+      // Scatter chart
+      (function(){
+        if(validSh.length<3)return null;
+        var recent=validSh.slice(-scSz);
+        var w=300,ht=300,cxs=w/2,cys=ht/2,rad=110;
+        var posMap={"hit":{x:0,y:0},"miss_short":{x:0,y:1},"miss_long":{x:0,y:-1},"miss_left":{x:-1,y:0},"miss_right":{x:1,y:0},"miss_short_left":{x:-0.7,y:0.7},"miss_short_right":{x:0.7,y:0.7},"miss_long_left":{x:-0.7,y:-0.7},"miss_long_right":{x:0.7,y:-0.7}};
+        var dots=recent.map(function(s,i){var p=posMap[s.res]||{x:0,y:0};var jx=(Math.random()-0.5)*30;var jy=(Math.random()-0.5)*30;var dx=cxs+p.x*rad+jx;var dy=cys+p.y*rad+jy;var isHit=s.res==="hit";return h("circle",{key:i,cx:dx,cy:dy,r:5,fill:isHit?C.gb:C.go,opacity:0.7});});
+        return h("div",{style:CD},
+          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}},
+            h("div",{style:{fontSize:10,color:C.dm,letterSpacing:2,textTransform:"uppercase"}},dD+" scatter (last "+Math.min(scSz,validSh.length)+")"),
+            h("div",{style:{display:"flex",gap:4}},[25,50,100].map(function(n){return h("button",{key:n,onClick:function(){sScSz(n)},style:{background:scSz===n?C.go+"33":"transparent",border:"1px solid "+(scSz===n?C.go:C.bd),borderRadius:4,padding:"2px 6px",fontSize:9,color:scSz===n?C.go:C.dm,fontFamily:"inherit",cursor:"pointer"}},n);}))
           ),
-          h(MT,{shots:clubShots,club:dD})
-        )
-      ),
-      // Distance breakdown for this club
-      Object.keys(distBreak).length>0?h("div",{style:CD},
-        h("div",{style:{fontSize:10,color:C.dm,letterSpacing:2,textTransform:"uppercase",marginBottom:6}},dD+" by target distance"),
-        Object.entries(distBreak).sort(function(a,b){return+a[0]-+b[0]}).map(function(x){
-          return h("div",{key:x[0],style:{padding:"5px 0",borderBottom:"1px solid "+C.bd,display:"flex",justifyContent:"space-between",fontSize:13}},
-            h("span",null,x[0]+" yds"),
-            h("span",null,h("span",{style:{color:C.gb}},Math.round(x[1].h/x[1].t*100)+"%"),h("span",{style:{color:C.dm,marginLeft:6}},x[1].h+"/"+x[1].t))
-          );
-        })
-      ):null
+          h("svg",{viewBox:"0 0 "+w+" "+ht,width:"100%",height:ht,style:{display:"block"}},
+            h("rect",{width:w,height:ht,fill:"transparent"}),
+            h("line",{x1:0,y1:cys,x2:w,y2:cys,stroke:C.bd,strokeWidth:1}),
+            h("line",{x1:cxs,y1:0,x2:cxs,y2:ht,stroke:C.bd,strokeWidth:1}),
+            h("circle",{cx:cxs,cy:cys,r:rad,fill:"none",stroke:C.bd,strokeWidth:1,strokeDasharray:"4 4"}),
+            h("circle",{cx:cxs,cy:cys,r:rad*0.4,fill:C.gn+"11",stroke:C.gn,strokeWidth:1}),
+            dots,
+            h("text",{x:cxs,y:16,textAnchor:"middle",fill:C.dm,fontSize:9},"LONG"),
+            h("text",{x:cxs,y:ht-8,textAnchor:"middle",fill:C.dm,fontSize:9},"SHORT"),
+            h("text",{x:10,y:cys+3,fill:C.dm,fontSize:9},"LEFT"),
+            h("text",{x:w-10,y:cys+3,textAnchor:"end",fill:C.dm,fontSize:9},"RIGHT")
+          ),
+          h("div",{style:{display:"flex",justifyContent:"center",gap:12,marginTop:6,fontSize:10}},h("span",{style:{color:C.gb}},"\u25CF On target"),h("span",{style:{color:C.go}},"\u25CF Miss"))
+        );
+      })()
     );
   }
 
